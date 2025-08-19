@@ -4,11 +4,14 @@ import ssl
 
 class URL:
     def __init__(self, url: str):
-        if not url.startswith("data"):
-            self.scheme, url = url.split("://", 1)
-        else:
+        if url.startswith("data"):
             self.scheme, url = url.split(":", 1)
             self.type, self.content = url.split(",", 1)
+            return            
+        self.scheme, url = url.split("://", 1)
+        self.view_source = self.scheme.startswith("view-source:")
+        if self.view_source:
+            self.scheme = self.scheme[len("view-source:"):]
         assert self.scheme in ["http", "https", "file", "data"]
         if self.scheme == "http":
             self.port = 80
@@ -36,10 +39,10 @@ class URL:
             type=socket.SOCK_STREAM, 
             proto=socket.IPPROTO_TCP
         )
-        s.connect((self.host, self.port))
         if self.scheme == "https":
             ctx = ssl.create_default_context()
             s = ctx.wrap_socket(s, server_hostname=self.host)
+        s.connect((self.host, self.port))
         request_headers = {
             "Host": self.host,
             "Connection": "close",
@@ -65,7 +68,10 @@ class URL:
         s.close()
         return content
 
-def show(body: str) -> None:
+def show(body: str, view_source = False) -> None:
+    if view_source:
+        print(body, end="")
+        return
     in_tag = False
     special_char = ""
     special_chars = {
@@ -95,8 +101,8 @@ def show(body: str) -> None:
 
 def load(url: URL) -> None:
     body = url.request()
-    show(body)
-
+    show(body, view_source=url.view_source)
+    
 # --- Start
 
 if __name__ == "__main__":
