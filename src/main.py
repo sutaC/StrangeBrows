@@ -1,13 +1,71 @@
 #!/usr/bin/env python3
 import socket
 import ssl
+import os
+import sqlite3
+import time
+import atexit
+
+class Cache:
+    def __init__(self, dir: str = ".") -> None:
+        self.con = sqlite3.connect(dir)
+        cursor = self.con.cursor()
+        cursor.execute('CREATE TABLE IF NOT EXISTS responses (url VARCHAR(255), expires INT, body TEXT);')
+        self.con.commit()
+        cursor.close()
+        atexit.register(self.con.close)        
+
+    def add(self, url: str, expires: int, body: str) -> None:
+        cursor = self.con.cursor()
+        cursor.execute('INSERT INTO responses (url, expires, body) VALUES (?, ?, ?);', [url, expires, body])
+        self.con.commit()
+        cursor.close()
+
+    def get(self, url: str) -> str | None:
+        cursor = self.con.cursor()
+        cursor.execute("SELECT expires, body FROM responses WHERE url = ?;", [url])
+        data = cursor.fetchone()
+        cursor.close()
+        if data is None:
+            return None
+        expires: int
+        body: str
+        expires, body = data
+        now = int(time.time())
+        if now > expires:
+            self.delete(url)
+            return None
+        return body
+        
+    def delete(self, url: str) -> None:
+        cursor = self.con.cursor()
+        cursor.execute("DELETE FROM responses WHERE url = ?;", [url])
+        self.con.commit()
+        cursor.close()
+
+    def clean(self) -> None:
+        cursor = self.con.cursor()
+        cursor.execute("DELETE FROM responses;")
+        self.con.commit()
+        cursor.close()
+
 
 class URL:
-    def __init__(self, url: str):
+    def __init__(self, url: str | None):
+        self.BASE_DIR = os.path.join(os.path.dirname(__file__), os.pardir)
+        self.url = str(url)
+        self.CACHE = Cache(os.path.join(self.BASE_DIR, "cache.sqlite"))
         self.REDIRECT_LIMIT = 5
         self.redirect_count = 0
         self.saved_socket: socket.socket | None = None
+        if url is None:
+            url = "file://" + os.path.join(self.BASE_DIR, "assets", "home.html")
         self.parse(url)
+        atexit.register(self.cleanup)
+
+    def cleanup(self) -> None:
+        if self.saved_socket is not None:
+            self.saved_socket.close()
 
     def parse(self, url: str) -> None:
         if url.startswith("data"):
@@ -41,6 +99,9 @@ class URL:
             return content
         elif self.scheme == "data":
             return self.content
+        cached_response = self.CACHE.get(self.url)
+        if cached_response is not None:
+            return cached_response
         s: socket.socket
         if self.saved_socket is not None:
             s = self.saved_socket
@@ -77,6 +138,7 @@ class URL:
             response_headers[header.casefold()] = value.strip()
         assert "transfer-encoding" not in response_headers
         assert "content-encoding" not in response_headers
+        print(response_headers)
         if 300 <= status < 400:
             self.redirect_count += 1
             if self.redirect_count > self.REDIRECT_LIMIT:
@@ -91,6 +153,19 @@ class URL:
             self.redirect_count = 0
         content_length = int(response_headers["content-length"])
         content = response.read(content_length).decode("utf-8")
+        if status == 200 and "cache-control" in response_headers:
+            cache_control: str = response_headers["cache-control"]
+            if cache_control == "no-store":
+                pass
+            elif cache_control.startswith("max-age"):
+                max_age = int(cache_control.split("=", 1)[1])
+                assert max_age >= 0
+                age = 0
+                if "age" in response_headers:
+                    age = int(response_headers["age"])
+                    assert age >= 0
+                expires = int(time.time()) + max_age - age
+                self.CACHE.add(self.url, expires, content)
         return content
 
 def show(body: str, view_source = False) -> None:
@@ -132,11 +207,7 @@ def load(url: URL) -> None:
 
 if __name__ == "__main__":
     import sys
-    url: str
+    url: str | None = None
     if len(sys.argv) > 1:
         url = sys.argv[1]
-    else:
-        import os
-        url = "file://"
-        url += os.path.join(os.path.dirname(__file__), os.pardir, "assets", "home.html")
     load(URL(url))
