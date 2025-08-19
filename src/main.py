@@ -67,11 +67,29 @@ class URL:
 
 def show(body: str) -> None:
     in_tag = False
+    special_char = ""
+    special_chars = {
+        "lt": "<",
+        "gt": ">",
+    }
     for c in body:
         if c == "<":
             in_tag = True
         elif c == ">":
             in_tag = False
+        elif c == "&":
+            special_char += c
+        elif special_char:
+            special_char += c
+            if c == " ":
+                print(special_char, end="")
+                special_char = ""
+            elif c == ";":
+                char_key = special_char[1:-1]
+                if char_key in special_chars:
+                    special_char = special_chars[char_key]
+                print(special_char, end="")
+                special_char = ""
         elif not in_tag:
             print(c, end="")
 
