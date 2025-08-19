@@ -28,8 +28,14 @@ class URL:
         if self.scheme == "https":
             ctx = ssl.create_default_context()
             s = ctx.wrap_socket(s, server_hostname=self.host)
-        request = "GET {} HTTP/1.0\r\n".format(self.path)
-        request += "Host: {}\r\n".format(self.host)
+        request_headers = {
+            "Host": self.host,
+            "Connection": "close",
+            "User-Agent": "StrangeBrows"
+        }
+        request = "GET {} HTTP/1.1\r\n".format(self.path)
+        for header in request_headers:
+            request += "{}: {}\r\n".format(header, request_headers[header])
         request += "\r\n"
         s.send(request.encode("utf-8"))
         response = s.makefile("r", encoding="utf-8", newline="\r\n")
