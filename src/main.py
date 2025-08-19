@@ -4,12 +4,17 @@ import ssl
 
 class URL:
     def __init__(self, url: str):
-        self.scheme, url = url.split("://", 1)
-        assert self.scheme in ["http", "https", "file"]
+        if not url.startswith("data"):
+            self.scheme, url = url.split("://", 1)
+        else:
+            self.scheme, url = url.split(":", 1)
+            self.type, self.content = url.split(",", 1)
+        assert self.scheme in ["http", "https", "file", "data"]
         if self.scheme == "http":
             self.port = 80
         elif self.scheme == "https":
             self.port = 443
+        if self.scheme == "data": return
         if "/" not in url:
             url = url + "/"
         self.host, url = url.split("/", 1)
@@ -24,6 +29,8 @@ class URL:
             content = file.read()
             file.close()
             return content
+        elif self.scheme == "data":
+            return self.content
         s = socket.socket(
             family=socket.AF_INET, 
             type=socket.SOCK_STREAM, 
