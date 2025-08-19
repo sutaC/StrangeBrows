@@ -4,7 +4,12 @@ import ssl
 
 class URL:
     def __init__(self, url: str):
+        self.REDIRECT_LIMIT = 5
+        self.redirect_count = 0
         self.saved_socket: socket.socket | None = None
+        self.parse(url)
+
+    def parse(self, url: str) -> None:
         if url.startswith("data"):
             self.scheme, url = url.split(":", 1)
             self.type, self.content = url.split(",", 1)
@@ -26,6 +31,7 @@ class URL:
         if ":" in self.host:
             self.host, port = self.host.split(":", 1)
             self.port = int(port)
+
 
     def request(self) -> str:
         if self.scheme == "file":
@@ -62,6 +68,7 @@ class URL:
         response = s.makefile("rb", encoding="utf-8", newline="\r\n")
         statusline = response.readline().decode("utf-8")
         version, status, explenation = statusline.split(" ", 2)
+        status = int(status)
         response_headers = {}
         while True:
             line = response.readline().decode("utf-8")
@@ -70,6 +77,18 @@ class URL:
             response_headers[header.casefold()] = value.strip()
         assert "transfer-encoding" not in response_headers
         assert "content-encoding" not in response_headers
+        if 300 <= status < 400:
+            self.redirect_count += 1
+            if self.redirect_count > self.REDIRECT_LIMIT:
+                raise Exception("Reached redirection limit")
+            location: str = response_headers["location"]
+            if location.startswith("/"):
+                self.path = location
+            else:
+                self.parse(location)
+            return self.request()
+        else:
+            self.redirect_count = 0
         content_length = int(response_headers["content-length"])
         content = response.read(content_length).decode("utf-8")
         return content
