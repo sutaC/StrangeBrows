@@ -201,12 +201,47 @@ class Browser:
         self.canvas.pack()
         self.display_list: list[display] = []
         self.scroll = 0
+        self.window.bind("<Up>", self.scrollup)
         self.window.bind("<Down>", self.scrolldown)
+        # System
+        match sys.platform:
+            case 'linux':
+                self.window.bind("<Button-4>", self.scrollup)
+                self.window.bind("<Button-5>", self.scrolldown)
+            case 'darwin':
+                self.window.bind("<MouseWheel>", self.scrollmousewheel_darwin)
+            case 'win32':
+                self.window.bind("<MouseWheel>", self.scrollmousewheel_win32)
+            case _:
+                raise Exception("Unsuported platform '{}'".format(sys.platform))
+
+    # --- Event handlers
+    def scrollup(self, e: tkinter.Event) -> None:
+        if self.scroll == 0: return
+        self.scroll -= SCROLL_STEP
+        if self.scroll < 0: self.scroll = 0
+        self.draw()
 
     def scrolldown(self, e: tkinter.Event) -> None:
         self.scroll += SCROLL_STEP
         self.draw()
 
+    # Mouse scrolling functions
+    def scrollmousewheel_win32(self, e: tkinter.Event) -> None:
+        if e.delta > 0 and self.scroll == 0: return
+        e.delta = int(e.delta / 120 * SCROLL_STEP) # Resets win32 standart 120 step
+        self.scroll -= e.delta
+        if self.scroll < 0: self.scroll = 0
+        self.draw()
+
+    def scrollmousewheel_darwin(self, e: tkinter.Event) -> None:
+        if e.delta < 0 and self.scroll == 0: return
+        e.delta = e.delta * SCROLL_STEP # Resets darwin standart 1 step
+        self.scroll += e.delta
+        if self.scroll < 0: self.scroll = 0
+        self.draw()
+
+    # --- Functions
     def draw(self) -> None:
         self.canvas.delete("all")
         for x, y, c in self.display_list:
