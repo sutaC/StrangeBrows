@@ -6,6 +6,14 @@ import sqlite3
 import time
 import atexit
 import gzip
+import tkinter 
+
+display = tuple[int, int, str]
+
+WIDTH, HEIGHT = 800, 600
+REDIRECT_LIMIT = 5
+HSTEP, VSTEP = 13, 18
+SCROLL_STEP = 100
 
 class Cache:
     def __init__(self, dir: str = ".") -> None:
@@ -56,7 +64,6 @@ class URL:
         self.BASE_DIR = os.path.join(os.path.dirname(__file__), os.pardir)
         self.url = str(url)
         self.CACHE = Cache(os.path.join(self.BASE_DIR, "cache.sqlite"))
-        self.REDIRECT_LIMIT = 5
         self.redirect_count = 0
         self.saved_socket: socket.socket | None = None
         if url is None:
@@ -140,7 +147,7 @@ class URL:
             response_headers[header.casefold()] = value.strip()
         if 300 <= status < 400:
             self.redirect_count += 1
-            if self.redirect_count > self.REDIRECT_LIMIT:
+            if self.redirect_count > REDIRECT_LIMIT:
                 raise Exception("Reached redirection limit")
             location: str = response_headers["location"]
             if location.startswith("/"):
@@ -183,16 +190,46 @@ class URL:
                 self.CACHE.add(self.url, expires, content)
         return content
 
-def show(body: str, view_source = False) -> None:
+class Browser:
+    def __init__(self) -> None:
+        self.window = tkinter.Tk()
+        self.canvas = tkinter.Canvas(
+            self.window,
+            width=WIDTH,
+            height=HEIGHT
+        )
+        self.canvas.pack()
+        self.display_list: list[display] = []
+        self.scroll = 0
+        self.window.bind("<Down>", self.scrolldown)
+
+    def scrolldown(self, e: tkinter.Event) -> None:
+        self.scroll += SCROLL_STEP
+        self.draw()
+
+    def draw(self) -> None:
+        self.canvas.delete("all")
+        for x, y, c in self.display_list:
+            if y > self.scroll + HEIGHT: continue
+            if y + VSTEP < self.scroll: continue
+            self.canvas.create_text(x, y - self.scroll, text=c)
+
+    def load(self, url: URL) -> None:
+        body = url.request()
+        text = lex(body, view_source=url.view_source)
+        self.display_list = layout(text)
+        self.draw()
+
+def lex(body: str, view_source = False) -> str:
     if view_source:
-        print(body, end="")
-        return
+        return body
     in_tag = False
     special_char = ""
     special_chars = {
         "lt": "<",
         "gt": ">",
     }
+    text = ""
     for c in body:
         if c == "<":
             in_tag = True
@@ -203,20 +240,28 @@ def show(body: str, view_source = False) -> None:
         elif special_char:
             special_char += c
             if c == " ":
-                print(special_char, end="")
+                text += special_char
                 special_char = ""
             elif c == ";":
                 char_key = special_char[1:-1]
                 if char_key in special_chars:
                     special_char = special_chars[char_key]
-                print(special_char, end="")
+                text += special_char
                 special_char = ""
         elif not in_tag:
-            print(c, end="")
+            text += c
+    return text
 
-def load(url: URL) -> None:
-    body = url.request()
-    show(body, view_source=url.view_source)
+def layout(text: str) -> list[display]:
+    display_list: list[display] = []
+    cursor_x, cursor_y = HSTEP, VSTEP
+    for c in text:
+        display_list.append((cursor_x, cursor_y, c))
+        cursor_x += HSTEP
+        if cursor_x >= WIDTH - HSTEP:
+            cursor_y += VSTEP
+            cursor_x = HSTEP
+    return display_list
 
 # --- Start
 
@@ -225,4 +270,5 @@ if __name__ == "__main__":
     url: str | None = None
     if len(sys.argv) > 1:
         url = sys.argv[1]
-    load(URL(url))
+    Browser().load(URL(url))
+    tkinter.mainloop()
