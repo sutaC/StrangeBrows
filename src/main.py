@@ -14,6 +14,7 @@ WIDTH, HEIGHT = 800, 600
 REDIRECT_LIMIT = 5
 HSTEP, VSTEP = 13, 18
 SCROLL_STEP = 100
+SCROLLBAR_OFFSET = 2
 
 class Cache:
     def __init__(self, dir: str = ".") -> None:
@@ -76,6 +77,7 @@ class URL:
             self.saved_socket.close()
 
     def parse(self, url: str) -> None:
+        self.view_source = False
         if url.startswith("data"):
             self.scheme, url = url.split(":", 1)
             self.type, self.content = url.split(",", 1)
@@ -192,11 +194,12 @@ class URL:
 
 class Browser:
     def __init__(self) -> None:
+        self.width, self.height = WIDTH, HEIGHT
         self.window = tkinter.Tk()
         self.canvas = tkinter.Canvas(
             self.window,
-            width=WIDTH,
-            height=HEIGHT,
+            width=self.width,
+            height=self.height,
         )
         self.canvas.pack(fill="both", expand=1)
         self.display_list: list[display] = []
@@ -218,49 +221,74 @@ class Browser:
 
     # --- Event handlers
     def scrollup(self, e: tkinter.Event) -> None:
-        if self.scroll == 0: return
+        if self.scroll == 0: return 
         self.scroll -= SCROLL_STEP
         if self.scroll < 0: self.scroll = 0
         self.draw()
 
     def scrolldown(self, e: tkinter.Event) -> None:
+        if self.scroll == self.display_height: return
         self.scroll += SCROLL_STEP
+        if self.scroll > self.display_height: self.scroll = self.display_height
         self.draw()
 
     def scrollmousewheel_win32(self, e: tkinter.Event) -> None:
         if e.delta > 0 and self.scroll == 0: return
+        if e.delta < 0 and self.scroll == self.display_height: return
         e.delta = int(e.delta / 120 * SCROLL_STEP) # Resets win32 standart 120 step
         self.scroll -= e.delta
         if self.scroll < 0: self.scroll = 0
+        if self.scroll > self.display_height: self.scroll = self.display_height
         self.draw()
 
     def scrollmousewheel_darwin(self, e: tkinter.Event) -> None:
         if e.delta < 0 and self.scroll == 0: return
+        if e.delta > 0 and self.scroll == self.display_height: return
         e.delta = e.delta * SCROLL_STEP # Resets darwin standart 1 step
         self.scroll += e.delta
         if self.scroll < 0: self.scroll = 0
+        if self.scroll > self.display_height: self.scroll = self.display_height
         self.draw()
 
     def configure(self, e: tkinter.Event) -> None:
+        self.width, self.height = e.width, e.height
         self.display_list = layout(
             self.text, 
-            width=e.width,
-            height=e.height
+            width=self.width,
+            height=self.height
         )
+        self.calculate_display_height()
         self.draw()
 
     # --- Functions
+    def calculate_display_height(self) -> None:
+        self.display_height = self.display_list[-1][1] - self.height + VSTEP * 2
+        if self.display_height < 0: self.display_height = 0
+
     def draw(self) -> None:
         self.canvas.delete("all")
+        # Draws content
         for x, y, c in self.display_list:
-            if y > self.scroll + HEIGHT: continue
+            if y > self.scroll + self.height: continue
             if y + VSTEP < self.scroll: continue
             self.canvas.create_text(x, y - self.scroll, text=c)
+        # Draws scrollbar
+        if self.display_height > 0:
+            ratio = int((self.scroll / self.display_height) * (self.height - VSTEP))
+            self.canvas.create_rectangle(
+                self.width - HSTEP + SCROLLBAR_OFFSET,
+                ratio + SCROLLBAR_OFFSET,
+                self.width - SCROLLBAR_OFFSET,
+                ratio + VSTEP - SCROLLBAR_OFFSET,
+                fill="blue",
+                outline="blue"
+            )
 
     def load(self, url: URL) -> None:
         body = url.request()
         self.text = lex(body, view_source=url.view_source)
         self.display_list = layout(self.text)
+        self.calculate_display_height()
         self.draw()
 
 def lex(body: str, view_source = False) -> str:
