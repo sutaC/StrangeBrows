@@ -256,6 +256,10 @@ def layout(text: str) -> list[display]:
     display_list: list[display] = []
     cursor_x, cursor_y = HSTEP, VSTEP
     for c in text:
+        if c == "\n":
+            cursor_y += int(VSTEP * 1.25)
+            cursor_x = HSTEP
+            continue
         display_list.append((cursor_x, cursor_y, c))
         cursor_x += HSTEP
         if cursor_x >= WIDTH - HSTEP:
