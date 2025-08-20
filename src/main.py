@@ -69,7 +69,11 @@ class URL:
         if url is None:
             url = "file://" + os.path.join(BASE_DIR, "assets", "home.html")
         self.url: str = url
-        self.parse(self.url)
+        try:
+            self.parse(self.url)
+        except:
+            print("Recived malformed url '{}', unable to continue...".format(self.url))
+            self.url = "about:blank"
         atexit.register(self.cleanup)
 
     def cleanup(self) -> None:
@@ -80,6 +84,8 @@ class URL:
         self.view_source = url.startswith("view-source:")
         if self.view_source:
             url = url[len("view-source:"):]
+        if url == "about:blank":
+            return
         if url.startswith("data"):
             self.scheme, url = url.split(":", 1)
             self.type, self.content = url.split(",", 1)
@@ -101,6 +107,8 @@ class URL:
 
 
     def request(self) -> str:
+        if self.url == "about:blank":
+            return ""
         if self.scheme == "file":
             file = open(self.path, "r")
             content = file.read()
@@ -262,6 +270,9 @@ class Browser:
 
     # --- Functions
     def calculate_display_height(self) -> None:
+        if len(self.display_list) == 0:
+            self.display_height = 0
+            return
         self.display_height = self.display_list[-1][1] - self.height + VSTEP * 2
         if self.display_height < 0: self.display_height = 0
 
