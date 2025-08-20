@@ -10,6 +10,7 @@ import tkinter
 
 display = tuple[int, int, str]
 
+BASE_DIR = os.path.join(os.path.dirname(__file__), os.pardir)
 WIDTH, HEIGHT = 800, 600
 REDIRECT_LIMIT = 5
 HSTEP, VSTEP = 13, 18
@@ -62,14 +63,13 @@ class Cache:
 
 class URL:
     def __init__(self, url: str | None):
-        self.BASE_DIR = os.path.join(os.path.dirname(__file__), os.pardir)
-        self.url = str(url)
-        self.CACHE = Cache(os.path.join(self.BASE_DIR, "cache.sqlite"))
+        self.CACHE = Cache(os.path.join(BASE_DIR, "cache.sqlite"))
         self.redirect_count = 0
         self.saved_socket: socket.socket | None = None
         if url is None:
-            url = "file://" + os.path.join(self.BASE_DIR, "assets", "home.html")
-        self.parse(url)
+            url = "file://" + os.path.join(BASE_DIR, "assets", "home.html")
+        self.url: str = url
+        self.parse(self.url)
         atexit.register(self.cleanup)
 
     def cleanup(self) -> None:
@@ -77,15 +77,14 @@ class URL:
             self.saved_socket.close()
 
     def parse(self, url: str) -> None:
-        self.view_source = False
+        self.view_source = url.startswith("view-source:")
+        if self.view_source:
+            url = url[len("view-source:"):]
         if url.startswith("data"):
             self.scheme, url = url.split(":", 1)
             self.type, self.content = url.split(",", 1)
             return            
         self.scheme, url = url.split("://", 1)
-        self.view_source = self.scheme.startswith("view-source:")
-        if self.view_source:
-            self.scheme = self.scheme[len("view-source:"):]
         assert self.scheme in ["http", "https", "file", "data"]
         if self.scheme == "http":
             self.port = 80
@@ -194,6 +193,7 @@ class URL:
 
 class Browser:
     def __init__(self) -> None:
+        self.images: list[tkinter.PhotoImage] = []
         self.width, self.height = WIDTH, HEIGHT
         self.window = tkinter.Tk()
         self.canvas = tkinter.Canvas(
@@ -271,6 +271,16 @@ class Browser:
         for x, y, c in self.display_list:
             if y > self.scroll + self.height: continue
             if y + VSTEP < self.scroll: continue
+            # Prints emojis
+            if not c.isalnum() and not c.isascii():
+                code = hex(ord(c))[2:].upper()
+                image_path = os.path.join(BASE_DIR, 'assets', 'emojis', "{}.png".format(code))
+                if os.path.isfile(image_path):
+                    image = tkinter.PhotoImage(file=image_path)
+                    self.canvas.create_image(x, y - self.scroll, image=image, anchor="center")
+                    self.images.append(image) # Prevents gb collection
+                    continue
+            # Prints text
             self.canvas.create_text(x, y - self.scroll, text=c)
         # Draws scrollbar
         if self.display_height > 0:
