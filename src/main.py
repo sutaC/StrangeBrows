@@ -196,14 +196,15 @@ class Browser:
         self.canvas = tkinter.Canvas(
             self.window,
             width=WIDTH,
-            height=HEIGHT
+            height=HEIGHT,
         )
-        self.canvas.pack()
+        self.canvas.pack(fill="both", expand=1)
         self.display_list: list[display] = []
         self.scroll = 0
         self.window.bind("<Up>", self.scrollup)
         self.window.bind("<Down>", self.scrolldown)
-        # System
+        self.window.bind("<Configure>", self.configure)
+        # System dependent
         match sys.platform:
             case 'linux':
                 self.window.bind("<Button-4>", self.scrollup)
@@ -226,7 +227,6 @@ class Browser:
         self.scroll += SCROLL_STEP
         self.draw()
 
-    # Mouse scrolling functions
     def scrollmousewheel_win32(self, e: tkinter.Event) -> None:
         if e.delta > 0 and self.scroll == 0: return
         e.delta = int(e.delta / 120 * SCROLL_STEP) # Resets win32 standart 120 step
@@ -241,6 +241,14 @@ class Browser:
         if self.scroll < 0: self.scroll = 0
         self.draw()
 
+    def configure(self, e: tkinter.Event) -> None:
+        self.display_list = layout(
+            self.text, 
+            width=e.width,
+            height=e.height
+        )
+        self.draw()
+
     # --- Functions
     def draw(self) -> None:
         self.canvas.delete("all")
@@ -251,8 +259,8 @@ class Browser:
 
     def load(self, url: URL) -> None:
         body = url.request()
-        text = lex(body, view_source=url.view_source)
-        self.display_list = layout(text)
+        self.text = lex(body, view_source=url.view_source)
+        self.display_list = layout(self.text)
         self.draw()
 
 def lex(body: str, view_source = False) -> str:
@@ -287,7 +295,7 @@ def lex(body: str, view_source = False) -> str:
             text += c
     return text
 
-def layout(text: str) -> list[display]:
+def layout(text: str, width=WIDTH, height=HEIGHT) -> list[display]:
     display_list: list[display] = []
     cursor_x, cursor_y = HSTEP, VSTEP
     for c in text:
@@ -297,7 +305,7 @@ def layout(text: str) -> list[display]:
             continue
         display_list.append((cursor_x, cursor_y, c))
         cursor_x += HSTEP
-        if cursor_x >= WIDTH - HSTEP:
+        if cursor_x >= width - HSTEP:
             cursor_y += VSTEP
             cursor_x = HSTEP
     return display_list
