@@ -2,11 +2,13 @@
 import socket
 import ssl
 import os
+import sys
 import sqlite3
 import time
 import atexit
 import gzip
 import tkinter 
+import argparse
 
 display = tuple[int, int, str]
 
@@ -62,11 +64,11 @@ class Cache:
 
 
 class URL:
-    def __init__(self, url: str | None):
+    def __init__(self, url: str):
         self.CACHE = Cache(os.path.join(BASE_DIR, "cache.sqlite"))
         self.redirect_count = 0
         self.saved_socket: socket.socket | None = None
-        if url is None:
+        if not url:
             url = "file://" + os.path.join(BASE_DIR, "assets", "home.html")
         self.url: str = url
         try:
@@ -200,7 +202,9 @@ class URL:
         return content
 
 class Browser:
-    def __init__(self) -> None:
+    def __init__(self, direction: str = 'ltr') -> None:
+        assert direction in ['ltr', 'rtl']
+        self.direction = direction
         self.images: list[tkinter.PhotoImage] = []
         self.width, self.height = WIDTH, HEIGHT
         self.window = tkinter.Tk()
@@ -260,16 +264,20 @@ class Browser:
 
     def configure(self, e: tkinter.Event) -> None:
         self.width, self.height = e.width, e.height
-        self.display_list = layout(
-            self.text, 
-            width=self.width,
-            height=self.height
-        )
-        self.calculate_display_height()
+        self.calculate_display()
         self.draw()
 
     # --- Functions
-    def calculate_display_height(self) -> None:
+    def calculate_display(self) -> None:
+        text = self.text
+        if self.direction == "rtl":
+            text = text[::-1] # Reverses text for right-to-left layout direction
+        self.display_list = layout(
+            text, 
+            width=self.width,
+            height=self.height
+        )
+        # Calculate display height
         if len(self.display_list) == 0:
             self.display_height = 0
             return
@@ -282,17 +290,20 @@ class Browser:
         for x, y, c in self.display_list:
             if y > self.scroll + self.height: continue
             if y + VSTEP < self.scroll: continue
+            y = y - self.scroll
+            if self.direction == 'rtl':
+                x = self.width - HSTEP - x
             # Prints emojis
             if not c.isalnum() and not c.isascii():
                 code = hex(ord(c))[2:].upper()
                 image_path = os.path.join(BASE_DIR, 'assets', 'emojis', "{}.png".format(code))
                 if os.path.isfile(image_path):
                     image = tkinter.PhotoImage(file=image_path)
-                    self.canvas.create_image(x, y - self.scroll, image=image, anchor="center")
+                    self.canvas.create_image(x, y, image=image, anchor="center")
                     self.images.append(image) # Prevents gb collection
                     continue
             # Prints text
-            self.canvas.create_text(x, y - self.scroll, text=c)
+            self.canvas.create_text(x, y, text=c)
         # Draws scrollbar
         if self.display_height > 0:
             ratio = int((self.scroll / self.display_height) * (self.height - VSTEP))
@@ -308,8 +319,7 @@ class Browser:
     def load(self, url: URL) -> None:
         body = url.request()
         self.text = lex(body, view_source=url.view_source)
-        self.display_list = layout(self.text)
-        self.calculate_display_height()
+        self.calculate_display()
         self.draw()
 
 def lex(body: str, view_source = False) -> str:
@@ -362,9 +372,9 @@ def layout(text: str, width=WIDTH, height=HEIGHT) -> list[display]:
 # --- Start
 
 if __name__ == "__main__":
-    import sys
-    url: str | None = None
-    if len(sys.argv) > 1:
-        url = sys.argv[1]
-    Browser().load(URL(url))
+    parser = argparse.ArgumentParser(description="Simple web browser")
+    parser.add_argument("url", type=str, help="Url to visit", nargs="?", default="")
+    parser.add_argument("--direction", choices=["ltr", "rtl"], help="Text display direction", default="ltr")
+    args = parser.parse_args()
+    Browser(direction=args.direction).load(URL(args.url))
     tkinter.mainloop()
