@@ -5,6 +5,7 @@ import os
 import sqlite3
 import time
 import atexit
+import gzip
 
 class Cache:
     def __init__(self, dir: str = ".") -> None:
@@ -119,26 +120,24 @@ class URL:
         request_headers = {
             "Host": self.host,
             "Connection": "keep-alive",
-            "User-Agent": "StrangeBrows"
+            "User-Agent": "StrangeBrows",
+            "Accept-Encoding": "gzip"
         }
         request = "GET {} HTTP/1.1\r\n".format(self.path)
         for header in request_headers:
             request += "{}: {}\r\n".format(header, request_headers[header])
         request += "\r\n"
-        s.send(request.encode("utf-8"))
+        s.send(request.encode())
         response = s.makefile("rb", encoding="utf-8", newline="\r\n")
-        statusline = response.readline().decode("utf-8")
+        statusline = response.readline().decode()
         version, status, explenation = statusline.split(" ", 2)
         status = int(status)
         response_headers = {}
         while True:
-            line = response.readline().decode("utf-8")
+            line = response.readline().decode()
             if line == "\r\n": break
             header, value = line.split(":", 1)
             response_headers[header.casefold()] = value.strip()
-        assert "transfer-encoding" not in response_headers
-        assert "content-encoding" not in response_headers
-        print(response_headers)
         if 300 <= status < 400:
             self.redirect_count += 1
             if self.redirect_count > self.REDIRECT_LIMIT:
@@ -151,8 +150,24 @@ class URL:
             return self.request()
         else:
             self.redirect_count = 0
-        content_length = int(response_headers["content-length"])
-        content = response.read(content_length).decode("utf-8")
+        content: str
+        if "content-encoding" in response_headers and response_headers["content-encoding"] == "gzip":
+            if "transfer-encoding" in response_headers and response_headers["transfer-encoding"] == "chunked":
+                assert "content-length" not in response_headers
+                encoded_content = bytearray()
+                while True:
+                    chunk_length = int(response.readline(), 16)
+                    if chunk_length == 0: break
+                    encoded_content.extend(response.read(chunk_length))
+                    response.readline() # Pass \r\n on chunk end
+                content = gzip.decompress(encoded_content).decode()
+            else:
+                content_length = int(response_headers["content-length"])
+                encoded_content = response.read(content_length)
+                content = gzip.decompress(encoded_content).decode()
+        else:
+            content_length = int(response_headers["content-length"])
+            content = response.read(content_length).decode()
         if status == 200 and "cache-control" in response_headers:
             cache_control: str = response_headers["cache-control"]
             if cache_control == "no-store":
