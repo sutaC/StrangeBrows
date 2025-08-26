@@ -1,16 +1,18 @@
 #!/usr/bin/env python3
+from typing import Literal
+from argparse import ArgumentParser
+from time import time
 import socket
 import ssl
 import os
 import sys
 import sqlite3
-import time
 import atexit
 import gzip
 import tkinter 
-import argparse
+import tkinter.font
 
-display = tuple[int, int, str]
+display = tuple[int, int, str, tkinter.font.Font]
 
 BASE_DIR = os.path.join(os.path.dirname(__file__), os.pardir)
 WIDTH, HEIGHT = 800, 600
@@ -18,6 +20,16 @@ REDIRECT_LIMIT = 5
 HSTEP, VSTEP = 13, 18
 SCROLL_STEP = 100
 SCROLLBAR_OFFSET = 2
+FONTS: dict[
+    tuple[int, Literal['normal', 'bold'], Literal['roman', 'italic']], 
+    tuple[tkinter.font.Font, tkinter.Label]
+] = {}
+SPECIAL_CHARS = {
+    "&lt;": "<",
+    "&gt;": ">",
+    "&quot;": "\"",
+    "&amp;": "&",
+}
 
 class Cache:
     def __init__(self, dir: str = ".") -> None:
@@ -44,7 +56,7 @@ class Cache:
         expires: int
         body: str
         expires, body = data
-        now = int(time.time())
+        now = int(time())
         if now > expires:
             self.delete(url)
             return None
@@ -86,8 +98,7 @@ class URL:
         self.view_source = url.startswith("view-source:")
         if self.view_source:
             url = url[len("view-source:"):]
-        if url == "about:blank":
-            return
+        if url == "about:blank": return
         if url.startswith("data"):
             self.scheme, url = url.split(":", 1)
             self.type, self.content = url.split(",", 1)
@@ -197,17 +208,17 @@ class URL:
                 if "age" in response_headers:
                     age = int(response_headers["age"])
                     assert age >= 0
-                expires = int(time.time()) + max_age - age
+                expires = int(time()) + max_age - age
                 self.CACHE.add(self.url, expires, content)
         return content
 
 class Browser:
-    def __init__(self, direction: str = 'ltr') -> None:
-        assert direction in ['ltr', 'rtl']
-        self.direction = direction
+    def __init__(self, direction: Literal['ltr', 'rtl'] = 'ltr') -> None:
+        self.direction: Literal['ltr', 'rtl'] = direction
         self.images: list[tkinter.PhotoImage] = []
         self.width, self.height = WIDTH, HEIGHT
         self.window = tkinter.Tk()
+        self.window.title("StrangeBrows")
         self.canvas = tkinter.Canvas(
             self.window,
             width=self.width,
@@ -263,21 +274,14 @@ class Browser:
         self.draw()
 
     def configure(self, e: tkinter.Event) -> None:
+        if self.width == e.width and self.height == e.height: return
         self.width, self.height = e.width, e.height
-        self.calculate_display()
+        self.display_list = Layout(self.tokens, width=self.width, direction=self.direction).display_list
+        self.calculate_display_height()
         self.draw()
 
     # --- Functions
-    def calculate_display(self) -> None:
-        text = self.text
-        if self.direction == "rtl":
-            text = text[::-1] # Reverses text for right-to-left layout direction
-        self.display_list = layout(
-            text, 
-            width=self.width,
-            height=self.height
-        )
-        # Calculate display height
+    def calculate_display_height(self) -> None:
         if len(self.display_list) == 0:
             self.display_height = 0
             return
@@ -287,23 +291,22 @@ class Browser:
     def draw(self) -> None:
         self.canvas.delete("all")
         # Draws content
-        for x, y, c in self.display_list:
+        for x, y, word, font in self.display_list:
+            # Prevents drawing out of bounds
             if y > self.scroll + self.height: continue
             if y + VSTEP < self.scroll: continue
             y = y - self.scroll
-            if self.direction == 'rtl':
-                x = self.width - HSTEP - x
             # Prints emojis
-            if not c.isalnum() and not c.isascii():
-                code = hex(ord(c))[2:].upper()
+            if len(word) == 1 and not word.isalnum() and not word.isascii():
+                code = hex(ord(word))[2:].upper()
                 image_path = os.path.join(BASE_DIR, 'assets', 'emojis', "{}.png".format(code))
                 if os.path.isfile(image_path):
                     image = tkinter.PhotoImage(file=image_path)
-                    self.canvas.create_image(x, y, image=image, anchor="center")
+                    self.canvas.create_image(x, y, image=image, anchor="nw")
                     self.images.append(image) # Prevents gb collection
                     continue
             # Prints text
-            self.canvas.create_text(x, y, text=c)
+            self.canvas.create_text(x, y, text=word, font=font, anchor="nw")
         # Draws scrollbar
         if self.display_height > 0:
             ratio = int((self.scroll / self.display_height) * (self.height - VSTEP))
@@ -318,61 +321,126 @@ class Browser:
 
     def load(self, url: URL) -> None:
         body = url.request()
-        self.text = lex(body, view_source=url.view_source)
-        self.calculate_display()
+        self.tokens = lex(body, view_source=url.view_source)
+        self.display_list = Layout(self.tokens, width=self.width, direction=self.direction).display_list
+        self.calculate_display_height()
         self.draw()
 
-def lex(body: str, view_source = False) -> str:
-    if view_source:
-        return body
+class Text:
+    def __init__(self, text: str) -> None:
+        self.text = text
+        # Handles special chars
+        for key in SPECIAL_CHARS:
+            if key in self.text:
+                self.text = self.text.replace(key, SPECIAL_CHARS[key])
+
+class Tag:
+    def __init__(self, tag: str) -> None:
+        self.tag = tag
+
+token = Text | Tag
+
+class Layout:
+    def __init__(self, tokens: list[token], width:int=WIDTH, direction:Literal["ltr", "rtl"]="ltr") -> None:
+        self.display_list: list[display] = []
+        self.cursor_x = HSTEP
+        self.cursor_y = VSTEP
+        self.weight: Literal['normal', 'bold'] = "normal"
+        self.style: Literal['roman', 'italic'] = "roman"
+        self.size = 16
+        self.width = width
+        self.line: list[tuple[int, str, tkinter.font.Font]] = []
+        self.direction: Literal["ltr", "rtl"] = direction
+        for tok in tokens:
+            self.token(tok)
+        self.flush()
+
+    def token(self, tok: token) -> None:
+        if isinstance(tok, Text):
+            for word in tok.text.split():
+                self.word(word)
+        elif isinstance(tok, Tag):
+            match tok.tag:
+                case "i": self.style = "italic"
+                case "/i": self.style = "roman"
+                case "b": self.weight = "bold"
+                case "/b": self.weight = "normal"
+                case "small": self.size -= 2
+                case "/small": self.size += 2
+                case "big": self.size += 4
+                case "/big": self.size -= 4
+                case "br": self.flush()
+                case "/p": self.flush(); self.cursor_y += VSTEP
+
+    def word(self, word: str) -> None:
+        font = get_font(self.size, self.weight, self.style)
+        w  = font.measure(word)
+        # Text directtion support
+        if (self.direction == "ltr" and self.cursor_x + w > self.width - HSTEP) or \
+            (self.direction == "rtl" and self.cursor_x - w < HSTEP):
+            self.flush()
+        # Text directtion support
+        if self.direction == "rtl":
+            self.cursor_x -= w + font.measure(" ")
+        self.line.append((self.cursor_x, word, font))
+        # Text directtion support
+        if self.direction == "ltr":
+            self.cursor_x += w + font.measure(" ")
+
+    def flush(self) -> None:
+        if not self.line: return
+        metrics = [font.metrics() for x, word, font, in self.line]
+        max_ascent = max(metric["ascent"] for metric in metrics)
+        baseline = int(self.cursor_y + 1.25 * max_ascent)
+        for x, word, font in self.line:
+            y = baseline - font.metrics("ascent")
+            self.display_list.append((x, y, word, font))
+        max_descent = max(metric["descent"] for metric in metrics)
+        self.cursor_y = int(baseline + 1.25 * max_descent)
+        # Text directtion support
+        if self.direction == "ltr":
+            self.cursor_x = HSTEP
+        elif self.direction == "rtl":
+            self.cursor_x = self.width - HSTEP
+        self.line = []
+
+def lex(body: str, view_source = False) -> list[token]:
+    out: list[token] = []
+    if view_source: return [Text(body)]
+    buffer = ""
     in_tag = False
-    special_char = ""
-    special_chars = {
-        "lt": "<",
-        "gt": ">",
-    }
-    text = ""
     for c in body:
         if c == "<":
             in_tag = True
+            if buffer: out.append(Text(buffer))
+            buffer = ""
         elif c == ">":
             in_tag = False
-        elif c == "&":
-            special_char += c
-        elif special_char:
-            special_char += c
-            if c == " ":
-                text += special_char
-                special_char = ""
-            elif c == ";":
-                char_key = special_char[1:-1]
-                if char_key in special_chars:
-                    special_char = special_chars[char_key]
-                text += special_char
-                special_char = ""
-        elif not in_tag:
-            text += c
-    return text
+            out.append(Tag(buffer))
+            buffer = ""
+        elif not in_tag and not c.isalnum() and not c.isascii():
+            # Splits text with emojis to handle them 
+            out.append(Text(buffer))
+            out.append(Text(c))
+            buffer = ""
+        else:
+            buffer += c
+    if not in_tag and buffer:
+        out.append(Text(buffer))
+    return out
 
-def layout(text: str, width=WIDTH, height=HEIGHT) -> list[display]:
-    display_list: list[display] = []
-    cursor_x, cursor_y = HSTEP, VSTEP
-    for c in text:
-        if c == "\n":
-            cursor_y += int(VSTEP * 1.25)
-            cursor_x = HSTEP
-            continue
-        display_list.append((cursor_x, cursor_y, c))
-        cursor_x += HSTEP
-        if cursor_x >= width - HSTEP:
-            cursor_y += VSTEP
-            cursor_x = HSTEP
-    return display_list
+def get_font(size: int, weight: Literal['normal', 'bold'], style: Literal['roman', 'italic']) -> tkinter.font.Font:
+    key = (size, weight, style)
+    if key not in FONTS:
+        font = tkinter.font.Font(size=size, weight=weight, slant=style)
+        label = tkinter.Label(font=font)
+        FONTS[key] = (font, label)
+    return FONTS[key][0]
 
 # --- Start
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Simple web browser")
+    parser = ArgumentParser(description="Simple web browser")
     parser.add_argument("url", type=str, help="Url to visit", nargs="?", default="")
     parser.add_argument("--direction", choices=["ltr", "rtl"], help="Text display direction", default="ltr")
     args = parser.parse_args()
