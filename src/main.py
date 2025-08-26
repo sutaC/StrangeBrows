@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-from typing import Literal
+from typing import Literal, Any
 from argparse import ArgumentParser
 from time import time
 import socket
@@ -12,6 +12,8 @@ import gzip
 import tkinter 
 import tkinter.font
 
+word_options = dict[str, Any]
+line_display = tuple[int, str, tkinter.font.Font, word_options]
 display = tuple[int, int, str, tkinter.font.Font]
 
 BASE_DIR = os.path.join(os.path.dirname(__file__), os.pardir)
@@ -348,8 +350,9 @@ class Layout:
         self.style: Literal['roman', 'italic'] = "roman"
         self.size = 16
         self.width = width
-        self.line: list[tuple[int, str, tkinter.font.Font]] = []
+        self.line: list[line_display] = []
         self.centered = False
+        self.superscript = False
         for tok in tokens:
             self.token(tok)
         self.flush()
@@ -376,30 +379,39 @@ class Layout:
                 case "/h1":
                     if self.centered: self.flush()
                     self.centered = False
+                case "sup": self.superscript = True
+                case "/sup": self.superscript = False
 
 
     def word(self, word: str) -> None:
-        font = get_font(self.size, self.weight, self.style)
+        # <sup> support
+        size = self.size
+        options: dict[str, Any] = {
+            "superscript": self.superscript
+        }
+        if self.superscript: size //= 2
+        font = get_font(size, self.weight, self.style)
         w  = font.measure(word)
         if self.cursor_x + w > self.width - HSTEP:
             self.flush()
-        self.line.append((self.cursor_x, word, font))
+        self.line.append((self.cursor_x, word, font, options))
         self.cursor_x += w + font.measure(" ")
 
     def flush(self) -> None:
         if not self.line: return
-        # Centerd line handling
+        # <h1 class="title"> - Centerd line support
         if self.centered:
-            x, word, font = self.line[-1]
+            x, word, font, opt = self.line[-1]
             line_end = x + font.measure(word)
-            padding = int((self.width - line_end - HSTEP) / 2)
+            padding = (self.width - line_end - HSTEP) // 2
             for idx, text in enumerate(self.line):
-                self.line[idx] = (text[0] + padding, text[1], text[2])
-        metrics = [font.metrics() for x, word, font, in self.line]
+                self.line[idx] = (text[0] + padding, text[1], text[2], text[3])
+        metrics = [font.metrics() for x, word, font, opt in self.line]
         max_ascent = max(metric["ascent"] for metric in metrics)
         baseline = int(self.cursor_y + 1.25 * max_ascent)
-        for x, word, font in self.line:
+        for x, word, font, opt in self.line:
             y = baseline - font.metrics("ascent")
+            if opt["superscript"]: y = self.cursor_y + max_ascent // 3 # <sup> support
             self.display_list.append((x, y, word, font))
         max_descent = max(metric["descent"] for metric in metrics)
         self.cursor_y = int(baseline + 1.25 * max_descent)
