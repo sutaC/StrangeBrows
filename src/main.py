@@ -213,8 +213,7 @@ class URL:
         return content
 
 class Browser:
-    def __init__(self, direction: Literal['ltr', 'rtl'] = 'ltr') -> None:
-        self.direction: Literal['ltr', 'rtl'] = direction
+    def __init__(self) -> None:
         self.images: list[tkinter.PhotoImage] = []
         self.width, self.height = WIDTH, HEIGHT
         self.window = tkinter.Tk()
@@ -276,7 +275,7 @@ class Browser:
     def configure(self, e: tkinter.Event) -> None:
         if self.width == e.width and self.height == e.height: return
         self.width, self.height = e.width, e.height
-        self.display_list = Layout(self.tokens, width=self.width, direction=self.direction).display_list
+        self.display_list = Layout(self.tokens, width=self.width).display_list
         self.calculate_display_height()
         self.draw()
 
@@ -322,7 +321,7 @@ class Browser:
     def load(self, url: URL) -> None:
         body = url.request()
         self.tokens = lex(body, view_source=url.view_source)
-        self.display_list = Layout(self.tokens, width=self.width, direction=self.direction).display_list
+        self.display_list = Layout(self.tokens, width=self.width).display_list
         self.calculate_display_height()
         self.draw()
 
@@ -341,7 +340,7 @@ class Tag:
 token = Text | Tag
 
 class Layout:
-    def __init__(self, tokens: list[token], width:int=WIDTH, direction:Literal["ltr", "rtl"]="ltr") -> None:
+    def __init__(self, tokens: list[token], width:int=WIDTH) -> None:
         self.display_list: list[display] = []
         self.cursor_x = HSTEP
         self.cursor_y = VSTEP
@@ -350,7 +349,7 @@ class Layout:
         self.size = 16
         self.width = width
         self.line: list[tuple[int, str, tkinter.font.Font]] = []
-        self.direction: Literal["ltr", "rtl"] = direction
+        self.centered = False
         for tok in tokens:
             self.token(tok)
         self.flush()
@@ -371,24 +370,31 @@ class Layout:
                 case "/big": self.size -= 4
                 case "br": self.flush()
                 case "/p": self.flush(); self.cursor_y += VSTEP
+                case 'h1 class="title"': 
+                    self.flush()
+                    self.centered = True
+                case "/h1":
+                    if self.centered: self.flush()
+                    self.centered = False
+
 
     def word(self, word: str) -> None:
         font = get_font(self.size, self.weight, self.style)
         w  = font.measure(word)
-        # Text directtion support
-        if (self.direction == "ltr" and self.cursor_x + w > self.width - HSTEP) or \
-            (self.direction == "rtl" and self.cursor_x - w < HSTEP):
+        if self.cursor_x + w > self.width - HSTEP:
             self.flush()
-        # Text directtion support
-        if self.direction == "rtl":
-            self.cursor_x -= w + font.measure(" ")
         self.line.append((self.cursor_x, word, font))
-        # Text directtion support
-        if self.direction == "ltr":
-            self.cursor_x += w + font.measure(" ")
+        self.cursor_x += w + font.measure(" ")
 
     def flush(self) -> None:
         if not self.line: return
+        # Centerd line handling
+        if self.centered:
+            x, word, font = self.line[-1]
+            line_end = x + font.measure(word)
+            padding = int((self.width - line_end - HSTEP) / 2)
+            for idx, text in enumerate(self.line):
+                self.line[idx] = (text[0] + padding, text[1], text[2])
         metrics = [font.metrics() for x, word, font, in self.line]
         max_ascent = max(metric["ascent"] for metric in metrics)
         baseline = int(self.cursor_y + 1.25 * max_ascent)
@@ -397,11 +403,7 @@ class Layout:
             self.display_list.append((x, y, word, font))
         max_descent = max(metric["descent"] for metric in metrics)
         self.cursor_y = int(baseline + 1.25 * max_descent)
-        # Text directtion support
-        if self.direction == "ltr":
-            self.cursor_x = HSTEP
-        elif self.direction == "rtl":
-            self.cursor_x = self.width - HSTEP
+        self.cursor_x = HSTEP
         self.line = []
 
 def lex(body: str, view_source = False) -> list[token]:
@@ -442,7 +444,6 @@ def get_font(size: int, weight: Literal['normal', 'bold'], style: Literal['roman
 if __name__ == "__main__":
     parser = ArgumentParser(description="Simple web browser")
     parser.add_argument("url", type=str, help="Url to visit", nargs="?", default="")
-    parser.add_argument("--direction", choices=["ltr", "rtl"], help="Text display direction", default="ltr")
     args = parser.parse_args()
-    Browser(direction=args.direction).load(URL(args.url))
+    Browser().load(URL(args.url))
     tkinter.mainloop()
