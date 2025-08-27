@@ -356,6 +356,7 @@ class Layout:
         self.line: list[line_display] = []
         self.centered = False
         self.superscript = False
+        self.abbr = False
         for tok in tokens:
             self.token(tok)
         self.flush()
@@ -363,7 +364,12 @@ class Layout:
     def token(self, tok: token) -> None:
         if isinstance(tok, Text):
             for word in tok.text.split():
-                self.word(word)
+                # <abbr> support
+                if self.abbr:
+                    for word in split_cases(word):
+                        self.word(word)
+                else:
+                    self.word(word)
         elif isinstance(tok, Tag):
             match tok.tag:
                 case "i": self.style = "italic"
@@ -384,16 +390,23 @@ class Layout:
                     self.centered = False
                 case "sup": self.superscript = True
                 case "/sup": self.superscript = False
-
+                case "abbr": self.abbr = True
+                case "/abbr": self.abbr = False
 
     def word(self, word: str) -> None:
-        # <sup> support
+        weight = self.weight
         size = self.size
         options: dict[str, Any] = {
             "superscript": self.superscript
         }
+        # <abbr> support
+        if self.abbr and word.islower():
+            word = word.upper()
+            weight = "bold"
+            if not self.superscript: size = int(size * 0.75)
+        # <sup> support
         if self.superscript: size //= 2
-        font = get_font(size, self.weight, self.style)
+        font = get_font(size, weight, self.style)
         w  = font.measure(word)
         if self.cursor_x + w > self.width - HSTEP:
             # Soft hyphens support
@@ -479,6 +492,20 @@ def get_font(size: int, weight: Literal['normal', 'bold'], style: Literal['roman
         label = tkinter.Label(font=font)
         FONTS[key] = (font, label)
     return FONTS[key][0]
+
+def split_cases(text: str) -> list[str]:
+    out: list[str] = []
+    buffer = ""
+    for c in text:
+        if not buffer:
+            buffer += c
+        elif (buffer.islower() and c.islower()) or (not buffer.islower() and not c.islower()):
+            buffer += c
+        else:
+            out.append(buffer)
+            buffer = c                
+    if buffer: out.append(buffer)
+    return out
 
 # --- Start
 
