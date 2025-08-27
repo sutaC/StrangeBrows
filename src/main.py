@@ -23,7 +23,7 @@ HSTEP, VSTEP = 13, 18
 SCROLL_STEP = 100
 SCROLLBAR_OFFSET = 2
 FONTS: dict[
-    tuple[int, Literal['normal', 'bold'], Literal['roman', 'italic']], 
+    tuple[str, int, Literal['normal', 'bold'], Literal['roman', 'italic']], 
     tuple[tkinter.font.Font, tkinter.Label]
 ] = {}
 SPECIAL_CHARS = {
@@ -349,27 +349,38 @@ class Layout:
         self.display_list: list[display] = []
         self.cursor_x = HSTEP
         self.cursor_y = VSTEP
+        self.family = "" # Uses default
+        self.size = 16
         self.weight: Literal['normal', 'bold'] = "normal"
         self.style: Literal['roman', 'italic'] = "roman"
-        self.size = 16
         self.width = width
         self.line: list[line_display] = []
         self.centered = False
         self.superscript = False
         self.abbr = False
+        self.pre = False
         for tok in tokens:
             self.token(tok)
         self.flush()
 
     def token(self, tok: token) -> None:
         if isinstance(tok, Text):
+            # <pre> support
+            if self.pre:
+                words = tok.text.split(r"\n")
+                for idx, word in enumerate(words):
+                    self.word(word)
+                    if idx < len(words) - 1: self.flush()
+                return
+            # ---
             for word in tok.text.split():
                 # <abbr> support
                 if self.abbr:
                     for word in split_cases(word):
                         self.word(word)
-                else:
-                    self.word(word)
+                    return
+                # ---
+                self.word(word)
         elif isinstance(tok, Tag):
             match tok.tag:
                 case "i": self.style = "italic"
@@ -380,18 +391,33 @@ class Layout:
                 case "/small": self.size += 2
                 case "big": self.size += 4
                 case "/big": self.size -= 4
-                case "br": self.flush()
-                case "/p": self.flush(); self.cursor_y += VSTEP
+                case "br": 
+                    if self.pre: return
+                    self.flush()
+                case "/p": 
+                    if self.pre: return
+                    self.flush()
+                    self.cursor_y += VSTEP
                 case 'h1 class="title"': 
+                    if self.pre: return
                     self.flush()
                     self.centered = True
                 case "/h1":
+                    if self.pre: return
                     if self.centered: self.flush()
                     self.centered = False
                 case "sup": self.superscript = True
                 case "/sup": self.superscript = False
                 case "abbr": self.abbr = True
                 case "/abbr": self.abbr = False
+                case "pre": 
+                    self.pre = True
+                    self.family = "Courier New"
+                    self.flush()
+                case "/pre": 
+                    self.pre = False
+                    self.family = "" # Default
+                    self.flush()
 
     def word(self, word: str) -> None:
         weight = self.weight
@@ -406,9 +432,10 @@ class Layout:
             if not self.superscript: size = int(size * 0.75)
         # <sup> support
         if self.superscript: size //= 2
-        font = get_font(size, weight, self.style)
+        font = get_font(self.family, size, weight, self.style)
         w  = font.measure(word)
-        if self.cursor_x + w > self.width - HSTEP:
+        # Auto line breaks
+        if self.cursor_x + w > self.width - HSTEP and not self.pre:
             # Soft hyphens support
             if "\N{soft hyphen}" in word:
                 seq = word
@@ -428,7 +455,8 @@ class Layout:
             else:
                 self.flush()
         self.line.append((self.cursor_x, word, font, options))
-        self.cursor_x += w + font.measure(" ")
+        self.cursor_x += w
+        if not self.pre: self.cursor_x += font.measure(" ")
 
     def flush(self) -> None:
         if not self.line: return
@@ -485,10 +513,10 @@ def lex(body: str, view_source = False) -> list[token]:
         out.append(Text(buffer))
     return out
 
-def get_font(size: int, weight: Literal['normal', 'bold'], style: Literal['roman', 'italic']) -> tkinter.font.Font:
-    key = (size, weight, style)
+def get_font(family: str, size: int, weight: Literal['normal', 'bold'], style: Literal['roman', 'italic']) -> tkinter.font.Font:
+    key = (family, size, weight, style)
     if key not in FONTS:
-        font = tkinter.font.Font(size=size, weight=weight, slant=style)
+        font = tkinter.font.Font(family=family, size=size, weight=weight, slant=style)
         label = tkinter.Label(font=font)
         FONTS[key] = (font, label)
     return FONTS[key][0]
