@@ -30,6 +30,7 @@ SPECIAL_CHARS = {
     "&lt;": "<",
     "&gt;": ">",
     "&quot;": "\"",
+    "&shy;": "\N{soft hyphen}",
     "&amp;": "&",
 }
 
@@ -215,7 +216,8 @@ class URL:
         return content
 
 class Browser:
-    def __init__(self) -> None:
+    def __init__(self, direction: Literal["ltr", "rtl"] = "ltr") -> None:
+        self.direction: Literal["ltr", "rtl"] = direction
         self.images: list[tkinter.PhotoImage] = []
         self.width, self.height = WIDTH, HEIGHT
         self.window = tkinter.Tk()
@@ -277,7 +279,7 @@ class Browser:
     def configure(self, e: tkinter.Event) -> None:
         if self.width == e.width and self.height == e.height: return
         self.width, self.height = e.width, e.height
-        self.display_list = Layout(self.tokens, width=self.width).display_list
+        self.display_list = Layout(self.tokens, width=self.width, direction=self.direction).display_list
         self.calculate_display_height()
         self.draw()
 
@@ -323,7 +325,7 @@ class Browser:
     def load(self, url: URL) -> None:
         body = url.request()
         self.tokens = lex(body, view_source=url.view_source)
-        self.display_list = Layout(self.tokens, width=self.width).display_list
+        self.display_list = Layout(self.tokens, width=self.width, direction=self.direction).display_list
         self.calculate_display_height()
         self.draw()
 
@@ -342,7 +344,8 @@ class Tag:
 token = Text | Tag
 
 class Layout:
-    def __init__(self, tokens: list[token], width:int=WIDTH) -> None:
+    def __init__(self, tokens: list[token], width:int=WIDTH, direction: Literal["ltr", "rtl"] = "ltr") -> None:
+        self.direction: Literal["ltr", "rtl"] = direction
         self.display_list: list[display] = []
         self.cursor_x = HSTEP
         self.cursor_y = VSTEP
@@ -393,7 +396,24 @@ class Layout:
         font = get_font(size, self.weight, self.style)
         w  = font.measure(word)
         if self.cursor_x + w > self.width - HSTEP:
-            self.flush()
+            # Soft hyphens support
+            if "\N{soft hyphen}" in word:
+                seq = word
+                remainder = ""
+                while "\N{soft hyphen}" in seq and self.cursor_x + w > self.width - HSTEP:
+                    seq, r = seq.rsplit("\N{soft hyphen}", 1)
+                    if remainder: remainder = "\N{soft hyphen}" + remainder # To save \N position
+                    remainder = r + remainder
+                    seq_w = font.measure(seq + "-")
+                    if self.cursor_x + seq_w > self.width - HSTEP: continue
+                    seq += "-" # Adds hyphen at separation point
+                    self.line.append((self.cursor_x, seq, font, options))
+                    self.flush()
+                    word = seq = remainder
+                    remainder = ""
+                    w = font.measure(word)
+            else:
+                self.flush()
         self.line.append((self.cursor_x, word, font, options))
         self.cursor_x += w + font.measure(" ")
 
@@ -406,12 +426,21 @@ class Layout:
             padding = (self.width - line_end - HSTEP) // 2
             for idx, text in enumerate(self.line):
                 self.line[idx] = (text[0] + padding, text[1], text[2], text[3])
+        # right-to-left text direction support
+        elif self.direction == "rtl": 
+            x, word, font, opt = self.line[-1]
+            line_end = x + font.measure(word)
+            padding = self.width - line_end - HSTEP
+            for idx, text in enumerate(self.line):
+                self.line[idx] = (text[0] + padding, text[1], text[2], text[3])
+        # ---
         metrics = [font.metrics() for x, word, font, opt in self.line]
         max_ascent = max(metric["ascent"] for metric in metrics)
         baseline = int(self.cursor_y + 1.25 * max_ascent)
         for x, word, font, opt in self.line:
             y = baseline - font.metrics("ascent")
             if opt["superscript"]: y = self.cursor_y + max_ascent // 3 # <sup> support
+            if "\N{soft hyphen}" in word: word = word.replace("\N{soft hyphen}", "") # Removes visible soft hyphen 
             self.display_list.append((x, y, word, font))
         max_descent = max(metric["descent"] for metric in metrics)
         self.cursor_y = int(baseline + 1.25 * max_descent)
@@ -456,6 +485,7 @@ def get_font(size: int, weight: Literal['normal', 'bold'], style: Literal['roman
 if __name__ == "__main__":
     parser = ArgumentParser(description="Simple web browser")
     parser.add_argument("url", type=str, help="Url to visit", nargs="?", default="")
+    parser.add_argument("--direction", choices=["ltr", "rtl"], help="Text direction on screen", default="ltr")
     args = parser.parse_args()
-    Browser().load(URL(args.url))
+    Browser(direction=args.direction).load(URL(args.url))
     tkinter.mainloop()
