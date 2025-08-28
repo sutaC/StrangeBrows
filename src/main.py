@@ -33,6 +33,10 @@ SPECIAL_CHARS = {
     "&shy;": "\N{soft hyphen}",
     "&amp;": "&",
 }
+SELF_CLOSING_TAGS = [
+    "area", "base", "br", "col", "embed", "hr", "img", "input",
+    "link", "meta", "param", "source", "track", "wbr",
+]
 
 class Cache:
     def __init__(self, dir: str = ".") -> None:
@@ -279,7 +283,7 @@ class Browser:
     def configure(self, e: tkinter.Event) -> None:
         if self.width == e.width and self.height == e.height: return
         self.width, self.height = e.width, e.height
-        self.display_list = Layout(self.tokens, width=self.width, direction=self.direction).display_list
+        self.display_list = Layout(self.nodes, width=self.width, direction=self.direction).display_list
         self.calculate_display_height()
         self.draw()
 
@@ -324,27 +328,36 @@ class Browser:
 
     def load(self, url: URL) -> None:
         body = url.request()
-        self.tokens = lex(body, view_source=url.view_source)
-        self.display_list = Layout(self.tokens, width=self.width, direction=self.direction).display_list
+        self.nodes = HTMLParser(body).parse(view_source=url.view_source)
+        self.display_list = Layout(self.nodes, width=self.width, direction=self.direction).display_list
         self.calculate_display_height()
         self.draw()
 
 class Text:
-    def __init__(self, text: str) -> None:
+    def __init__(self, text: str, parent) -> None:
         self.text = text
+        self.children = []
+        self.parent = parent
         # Handles special chars
         for key in SPECIAL_CHARS:
             if key in self.text:
                 self.text = self.text.replace(key, SPECIAL_CHARS[key])
 
-class Tag:
-    def __init__(self, tag: str) -> None:
-        self.tag = tag
+    def __repr__(self) -> str:
+        return self.text
 
-token = Text | Tag
+class Element:
+    def __init__(self, tag: str, attributes: dict[str, str], parent) -> None:
+        self.tag = tag
+        self.attributes = attributes
+        self.children = []
+        self.parent = parent
+
+    def __repr__(self) -> str:
+        return "<" + self.tag + ">"
 
 class Layout:
-    def __init__(self, tokens: list[token], width:int=WIDTH, direction: Literal["ltr", "rtl"] = "ltr") -> None:
+    def __init__(self, nodes: Element, width:int=WIDTH, direction: Literal["ltr", "rtl"] = "ltr") -> None:
         self.direction: Literal["ltr", "rtl"] = direction
         self.display_list: list[display] = []
         self.cursor_x = HSTEP
@@ -359,21 +372,20 @@ class Layout:
         self.superscript = False
         self.abbr = False
         self.pre = False
-        for tok in tokens:
-            self.token(tok)
+        self.recurse(nodes)
         self.flush()
 
-    def token(self, tok: token) -> None:
-        if isinstance(tok, Text):
+    def recurse(self, tree: Element| Text) -> None:
+        if isinstance(tree, Text):
             # <pre> support
             if self.pre:
-                words = tok.text.split(r"\n")
+                words = tree.text.split(r"\n")
                 for idx, word in enumerate(words):
                     self.word(word)
                     if idx < len(words) - 1: self.flush()
                 return
             # ---
-            for word in tok.text.split():
+            for word in tree.text.split():
                 # <abbr> support
                 if self.abbr:
                     for word in split_cases(word):
@@ -381,43 +393,11 @@ class Layout:
                     return
                 # ---
                 self.word(word)
-        elif isinstance(tok, Tag):
-            match tok.tag:
-                case "i": self.style = "italic"
-                case "/i": self.style = "roman"
-                case "b": self.weight = "bold"
-                case "/b": self.weight = "normal"
-                case "small": self.size -= 2
-                case "/small": self.size += 2
-                case "big": self.size += 4
-                case "/big": self.size -= 4
-                case "br": 
-                    if self.pre: return
-                    self.flush()
-                case "/p": 
-                    if self.pre: return
-                    self.flush()
-                    self.cursor_y += VSTEP
-                case 'h1 class="title"': 
-                    if self.pre: return
-                    self.flush()
-                    self.centered = True
-                case "/h1":
-                    if self.pre: return
-                    if self.centered: self.flush()
-                    self.centered = False
-                case "sup": self.superscript = True
-                case "/sup": self.superscript = False
-                case "abbr": self.abbr = True
-                case "/abbr": self.abbr = False
-                case "pre": 
-                    self.pre = True
-                    self.family = "Courier New"
-                    self.flush()
-                case "/pre": 
-                    self.pre = False
-                    self.family = "" # Default
-                    self.flush()
+        elif isinstance(tree, Element):
+            self.open_tag(tree.tag)
+            for child in tree.children:
+                self.recurse(child)
+            self.close_tag(tree.tag)
 
     def word(self, word: str) -> None:
         weight = self.weight
@@ -488,30 +468,149 @@ class Layout:
         self.cursor_x = HSTEP
         self.line = []
 
-def lex(body: str, view_source = False) -> list[token]:
-    out: list[token] = []
-    if view_source: return [Text(body)]
-    buffer = ""
-    in_tag = False
-    for c in body:
-        if c == "<":
-            in_tag = True
-            if buffer: out.append(Text(buffer))
-            buffer = ""
-        elif c == ">":
-            in_tag = False
-            out.append(Tag(buffer))
-            buffer = ""
-        elif not in_tag and not c.isalnum() and not c.isascii():
-            # Splits text with emojis to handle them 
-            out.append(Text(buffer))
-            out.append(Text(c))
-            buffer = ""
+    def open_tag(self, tag: str) -> None:
+        match tag:
+            case "i": self.style = "italic"
+            case "b": self.weight = "bold"
+            case "small": self.size -= 2
+            case "big": self.size += 4
+            case "br": 
+                if self.pre: return
+                self.flush()
+            case 'h1': 
+                if self.pre: return
+                self.flush()
+                self.centered = True
+            case "sup": self.superscript = True
+            case "abbr": self.abbr = True
+            case "pre": 
+                self.pre = True
+                self.family = "Courier New"
+                self.flush()
+
+    def close_tag(self, tag: str) -> None:
+        match tag:
+            case "i": self.style = "roman"
+            case "b": self.weight = "normal"
+            case "small": self.size += 2
+            case "big": self.size -= 4
+            case "p": 
+                if self.pre: return
+                self.flush()
+                self.cursor_y += VSTEP
+            case "h1":
+                if self.pre: return
+                if self.centered: self.flush()
+                self.centered = False
+            case "sup": self.superscript = False
+            case "abbr": self.abbr = False
+            case "pre": 
+                self.pre = False
+                self.family = "" # Default font
+                self.flush()
+
+class HTMLParser:
+    HEAD_TAGS = [
+        "base", "basefont", "bgsound", "noscript",
+        "link", "meta", "title", "style", "script",
+    ]
+    
+    def __init__(self, body: str) -> None:
+        self.body: str = body
+        self.unfinished: list[Element] = []
+
+    def parse(self, view_source=False) -> Element:
+        if view_source: # view_source support
+            root = Element("", {}, None)
+            node = Text(self.body, root)
+            root.children.append(node)
+            return root
+        text = ""
+        in_tag = False
+        for c in self.body:
+            if c == "<":
+                in_tag = True
+                if text: self.add_text(text)
+                text = ""
+            elif c == ">":
+                in_tag = False
+                self.add_tag(text)
+                text = ""
+            elif not in_tag and not c.isalnum() and not c.isascii():
+                # Splits text with emojis to handle them 
+                self.add_text(text)
+                self.add_text(c)
+                text = ""
+            else:
+                text += c
+        if not in_tag and text:
+            self.add_text(text)
+        return self.finish()
+
+    def add_text(self, text: str) -> None:
+        if text.isspace(): return
+        self.implicit_tags(None)
+        parent = self.unfinished[-1]
+        node = Text(text, parent)
+        parent.children.append(node)
+
+    def add_tag(self, tag: str) -> None:
+        tag, attributes = self.get_attributes(tag)
+        if tag.startswith("!"): return
+        self.implicit_tags(tag)
+        if tag.startswith("/"):
+            if len(self.unfinished) == 1: return
+            node = self.unfinished.pop()
+            parent = self.unfinished[-1]
+            parent.children.append(node)
+        elif tag in SELF_CLOSING_TAGS:
+            parent = self.unfinished[-1]
+            node = Element(tag, attributes, parent)
+            parent.children.append(node)
         else:
-            buffer += c
-    if not in_tag and buffer:
-        out.append(Text(buffer))
-    return out
+            parent = self.unfinished[-1] if self.unfinished else None
+            node = Element(tag, attributes, parent)
+            self.unfinished.append(node)
+
+    def implicit_tags(self, tag: str | None) -> None:
+        while True:
+            open_tags = [node.tag for node in self.unfinished]
+            if open_tags == [] and tag != "html":
+                self.add_tag("html")
+            elif open_tags == ["html"] and tag not in ["head", "body", "/html"]:
+                if tag in self.HEAD_TAGS:
+                    self.add_tag("head")
+                else:
+                    self.add_tag("body")
+            elif open_tags == ["html", "head"] and tag not in ["/head"] + self.HEAD_TAGS:
+                self.add_tag("/head")
+            else:
+                break
+
+
+    def get_attributes(self, text: str) -> tuple[str, dict[str, str]]:
+        parts = text.split()
+        tag = parts[0].casefold()
+        attributes: dict[str, str] = {}
+        for attrpair in parts[1:]:
+            if "=" in attrpair:
+                key, value = attrpair.split("=", 1)
+                if len(value) > 2 and value[0] in ["'", "\""]:
+                    value = value[1:-1]
+                attributes[key.casefold()] = value
+            else:
+                attributes[attrpair.casefold()] = ""
+        return tag, attributes
+
+    def finish(self) -> Element:
+        if not self.unfinished:
+            self.implicit_tags(None)
+        while len(self.unfinished) > 1:
+            node = self.unfinished.pop()
+            parent = self.unfinished[-1]
+            parent.children.append(node)
+        return self.unfinished.pop()
+        
 
 def get_font(family: str, size: int, weight: Literal['normal', 'bold'], style: Literal['roman', 'italic']) -> tkinter.font.Font:
     key = (family, size, weight, style)
@@ -534,6 +633,11 @@ def split_cases(text: str) -> list[str]:
             buffer = c                
     if buffer: out.append(buffer)
     return out
+
+def print_tree(node: Element | Text, indent=0) -> None:
+    print(" " * indent, node)
+    for child in node.children:
+        print_tree(child, indent+2)
 
 # --- Start
 
