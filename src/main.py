@@ -354,7 +354,17 @@ class Element:
         self.parent = parent
 
     def __repr__(self) -> str:
-        return "<" + self.tag + ">"
+        attr = " "
+        for key in self.attributes:
+            if self.attributes[key]:
+                q = "\""
+                if q in self.attributes[key]: q = "'"
+                attr += "{}={}{}{}".format(key, q, self.attributes[key], q)
+            else:
+                attr += key
+            attr += " "
+        attr = attr[:-1]
+        return "<" + self.tag + attr + ">"
 
 class Layout:
     def __init__(self, nodes: Element, width:int=WIDTH, direction: Literal["ltr", "rtl"] = "ltr") -> None:
@@ -611,14 +621,36 @@ class HTMLParser:
 
 
     def get_attributes(self, text: str) -> tuple[str, dict[str, str]]:
-        parts = text.split()
-        tag = parts[0].casefold()
+        spl = text.split(None, 1)
+        if len(spl) == 1: return (spl[0], {})
+        tag, attrstr = spl
+        tag = tag.casefold()
         attributes: dict[str, str] = {}
-        for attrpair in parts[1:]:
+        parts: list[str] = []
+        quotes = ""
+        buffer = ""
+        for c in attrstr:
+            if c in ["\"", "'"]:
+                if not quotes:
+                    quotes = c
+                elif c == quotes:
+                    parts.append(buffer)
+                    buffer = ""
+                    quotes = ""
+                else:
+                    buffer += c
+            elif c.isspace() and not quotes:
+                parts.append(buffer)
+                buffer = ""
+            else:
+                buffer += c
+        if buffer:
+            parts.append(buffer)
+        for attrpair in parts:
+            if not attrpair: continue
             if "=" in attrpair:
                 key, value = attrpair.split("=", 1)
-                if len(value) > 2 and value[0] in ["'", "\""]:
-                    value = value[1:-1]
+                key = key.strip()
                 attributes[key.casefold()] = value
             else:
                 attributes[attrpair.casefold()] = ""
