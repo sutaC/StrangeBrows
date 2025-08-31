@@ -514,6 +514,9 @@ class HTMLParser:
         "base", "basefont", "bgsound", "noscript",
         "link", "meta", "title", "style", "script",
     ]
+    UNNESTABLE_TAGS = [
+        "p", "li"
+    ]
     
     def __init__(self, body: str) -> None:
         self.body: str = body
@@ -570,6 +573,9 @@ class HTMLParser:
             if len(self.unfinished) == 1: return
             node = self.unfinished.pop()
             parent = self.unfinished[-1]
+            if tag[1:] in self.UNNESTABLE_TAGS:
+                while tag[1:] == parent.tag:
+                    parent = parent.parent
             parent.children.append(node)
         elif tag in SELF_CLOSING_TAGS:
             parent = self.unfinished[-1]
