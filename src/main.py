@@ -531,6 +531,7 @@ class HTMLParser:
         text = ""
         in_tag = False
         in_comment = False
+        in_script = False
         for c in self.body:
             if in_comment:
                 text += c
@@ -543,6 +544,14 @@ class HTMLParser:
                 text = ""
             elif c == ">":
                 in_tag = False
+                if in_script:
+                    if text.casefold().startswith("/script"):
+                        in_script = False
+                    else:
+                        self.add_text("<{}>".format(text))
+                        text = ""
+                        continue
+                elif text.startswith("script"): in_script = True
                 self.add_tag(text)
                 text = ""
             elif not in_tag and not c.isalnum() and not c.isascii():
@@ -552,8 +561,7 @@ class HTMLParser:
                 text = ""
             else:
                 text += c
-                if in_tag and text.startswith("!--"):
-                    in_comment = True
+                if in_tag and text.startswith("!--"): in_comment = True
         if not in_tag and not in_comment and text:
             self.add_text(text)
         return self.finish()
