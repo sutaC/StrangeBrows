@@ -527,8 +527,14 @@ class HTMLParser:
             return root
         text = ""
         in_tag = False
+        in_comment = False
         for c in self.body:
-            if c == "<":
+            if in_comment:
+                text += c
+                if text.endswith("-->"):
+                    in_comment = False
+                    text = ""
+            elif c == "<":
                 in_tag = True
                 if text: self.add_text(text)
                 text = ""
@@ -543,7 +549,9 @@ class HTMLParser:
                 text = ""
             else:
                 text += c
-        if not in_tag and text:
+                if in_tag and text.startswith("!--"):
+                    in_comment = True
+        if not in_tag and not in_comment and text:
             self.add_text(text)
         return self.finish()
 
