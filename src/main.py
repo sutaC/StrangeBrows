@@ -37,6 +37,16 @@ SELF_CLOSING_TAGS = [
     "area", "base", "br", "col", "embed", "hr", "img", "input",
     "link", "meta", "param", "source", "track", "wbr",
 ]
+HEAD_TAGS = [
+    "base", "basefont", "bgsound", "noscript",
+    "link", "meta", "title", "style", "script",
+]
+UNNESTABLE_TAGS = [
+    "p", "li"
+]
+TEXT_FORMATTING_TAGS = [
+    "b", "i", "small", "big"
+]
 
 class Cache:
     def __init__(self, dir: str = ".") -> None:
@@ -522,18 +532,11 @@ class Layout:
                 self.family = "" # Default font
                 self.flush()
 
-class HTMLParser:
-    HEAD_TAGS = [
-        "base", "basefont", "bgsound", "noscript",
-        "link", "meta", "title", "style", "script",
-    ]
-    UNNESTABLE_TAGS = [
-        "p", "li"
-    ]
-    
+class HTMLParser:    
     def __init__(self, body: str) -> None:
         self.body: str = body
         self.unfinished: list[Element] = []
+        self.open_formatting_tags: list[str] = []
 
     def parse(self) -> Element:
         text = ""
@@ -587,17 +590,36 @@ class HTMLParser:
         self.implicit_tags(tag)
         if tag.startswith("/"):
             if len(self.unfinished) == 1: return
+            tag_name = tag[1:]
+            # Mis-nesting support
+            is_misnested = tag_name in TEXT_FORMATTING_TAGS and tag_name != self.open_formatting_tags[-1]
+            open_tags: list[str] = []
+            if is_misnested:
+                while self.open_formatting_tags:
+                    last_tag = self.open_formatting_tags[-1]
+                    if tag_name == last_tag: break
+                    self.add_tag("/{}".format(last_tag))
+                    open_tags.append(last_tag)
+            if tag_name in TEXT_FORMATTING_TAGS and tag_name == self.open_formatting_tags[-1]: 
+                self.open_formatting_tags.pop()
+            # ---
             node = self.unfinished.pop()
             parent = self.unfinished[-1]
-            if tag[1:] in self.UNNESTABLE_TAGS:
-                while tag[1:] == parent.tag:
+            if tag_name in UNNESTABLE_TAGS:
+                while tag_name == parent.tag:
                     parent = parent.parent
             parent.children.append(node)
+            # Mis-nesting support
+            if is_misnested: 
+                for last_tag in reversed(open_tags):
+                    self.add_tag(last_tag)
+            # ---
         elif tag in SELF_CLOSING_TAGS:
             parent = self.unfinished[-1]
             node = Element(tag, attributes, parent)
             parent.children.append(node)
         else:
+            if tag in TEXT_FORMATTING_TAGS: self.open_formatting_tags.append(tag)
             parent = self.unfinished[-1] if self.unfinished else None
             node = Element(tag, attributes, parent)
             self.unfinished.append(node)
@@ -608,11 +630,11 @@ class HTMLParser:
             if open_tags == [] and tag != "html":
                 self.add_tag("html")
             elif open_tags == ["html"] and tag not in ["head", "body", "/html"]:
-                if tag in self.HEAD_TAGS:
+                if tag in HEAD_TAGS:
                     self.add_tag("head")
                 else:
                     self.add_tag("body")
-            elif open_tags == ["html", "head"] and tag not in ["/head"] + self.HEAD_TAGS:
+            elif open_tags == ["html", "head"] and tag not in ["/head"] + HEAD_TAGS:
                 self.add_tag("/head")
             else:
                 break
