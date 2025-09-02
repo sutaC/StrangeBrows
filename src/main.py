@@ -328,7 +328,10 @@ class Browser:
 
     def load(self, url: URL) -> None:
         body = url.request()
-        self.nodes = HTMLParser(body).parse(view_source=url.view_source)
+        if url.view_source:
+            self.nodes = HTMLSourceParser(body).source()
+        else:
+            self.nodes = HTMLParser(body).parse()
         self.display_list = Layout(self.nodes, width=self.width, direction=self.direction).display_list
         self.calculate_display_height()
         self.draw()
@@ -389,7 +392,7 @@ class Layout:
         if isinstance(tree, Text):
             # <pre> support
             if self.pre:
-                words = tree.text.split(r"\n")
+                words = tree.text.split("\n")
                 for idx, word in enumerate(words):
                     self.word(word)
                     if idx < len(words) - 1: self.flush()
@@ -532,12 +535,7 @@ class HTMLParser:
         self.body: str = body
         self.unfinished: list[Element] = []
 
-    def parse(self, view_source=False) -> Element:
-        if view_source: # view_source support
-            root = Element("", {}, None)
-            node = Text(self.body, root)
-            root.children.append(node)
-            return root
+    def parse(self) -> Element:
         text = ""
         in_tag = False
         in_comment = False
@@ -665,6 +663,31 @@ class HTMLParser:
             parent.children.append(node)
         return self.unfinished.pop()
         
+class HTMLSourceParser(HTMLParser):
+    def __init__(self, body: str) -> None:
+        super().__init__(body)
+
+    def recurse(self, node: Element | Text, indent = 0) -> None:
+        if isinstance(node, Element):
+            self.add_text(" " * indent + node.__repr__() + "\n")
+        elif isinstance(node, Text):
+            self.add_tag("b")
+            text = ""
+            for line in node.text.split("\n"): 
+                text += " " * indent + line.strip() + "\n"
+            self.add_text(text)
+            self.add_tag("/b")
+        for child in node.children:
+            self.recurse(child, indent=indent+1)
+        if isinstance(node, Element) and node.tag not in SELF_CLOSING_TAGS:
+            self.add_text(" " * indent + "</{}>".format(node.tag) + "\n")
+        
+    def source(self) -> Element:
+        nodes = self.parse()
+        self.add_tag("pre")
+        self.recurse(nodes)
+        self.add_tag("/pre")
+        return self.finish()
 
 def get_font(family: str, size: int, weight: Literal['normal', 'bold'], style: Literal['roman', 'italic']) -> tkinter.font.Font:
     key = (family, size, weight, style)
