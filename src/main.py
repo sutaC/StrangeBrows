@@ -22,6 +22,7 @@ REDIRECT_LIMIT = 5
 HSTEP, VSTEP = 13, 18
 SCROLL_STEP = 100
 SCROLLBAR_OFFSET = 2
+OPT_DIRECTION: Literal["ltr", "rtl"] = "ltr"
 FONTS: dict[
     tuple[str, int, Literal['normal', 'bold'], Literal['roman', 'italic']], 
     tuple[tkinter.font.Font, tkinter.Label]
@@ -46,6 +47,14 @@ UNNESTABLE_TAGS = [
 ]
 TEXT_FORMATTING_TAGS = [
     "b", "i", "small", "big"
+]
+BLOCK_ELEMENTS = [
+    "html", "body", "article", "section", "nav", "aside",
+    "h1", "h2", "h3", "h4", "h5", "h6", "hgroup", "header",
+    "footer", "address", "p", "hr", "pre", "blockquote",
+    "ol", "ul", "menu", "li", "dl", "dt", "dd", "figure",
+    "figcaption", "main", "div", "table", "form", "fieldset",
+    "legend", "details", "summary"
 ]
 
 class Cache:
@@ -230,19 +239,17 @@ class URL:
         return content
 
 class Browser:
-    def __init__(self, direction: Literal["ltr", "rtl"] = "ltr") -> None:
-        self.direction: Literal["ltr", "rtl"] = direction
+    def __init__(self) -> None:
         self.images: list[tkinter.PhotoImage] = []
-        self.width, self.height = WIDTH, HEIGHT
         self.window = tkinter.Tk()
         self.window.title("StrangeBrows")
         self.canvas = tkinter.Canvas(
             self.window,
-            width=self.width,
-            height=self.height,
+            width=WIDTH,
+            height=HEIGHT,
         )
         self.canvas.pack(fill="both", expand=1)
-        self.display_list: list[display] = []
+        self.display_list: list[DrawText | DrawRect] = []
         self.scroll = 0
         self.window.bind("<Up>", self.scrollup)
         self.window.bind("<Down>", self.scrolldown)
@@ -261,79 +268,60 @@ class Browser:
 
     # --- Event handlers
     def scrollup(self, e: tkinter.Event) -> None:
-        if self.scroll == 0: return 
-        self.scroll -= SCROLL_STEP
-        if self.scroll < 0: self.scroll = 0
+        self.scroll = max(self.scroll - SCROLL_STEP, 0)
         self.draw()
 
     def scrolldown(self, e: tkinter.Event) -> None:
-        if self.scroll == self.display_height: return
-        self.scroll += SCROLL_STEP
-        if self.scroll > self.display_height: self.scroll = self.display_height
+        self.scroll = min(self.scroll + SCROLL_STEP, self.display_height())
         self.draw()
 
     def scrollmousewheel_win32(self, e: tkinter.Event) -> None:
-        if e.delta > 0 and self.scroll == 0: return
-        if e.delta < 0 and self.scroll == self.display_height: return
-        e.delta = int(e.delta / 120 * SCROLL_STEP) # Resets win32 standart 120 step
-        self.scroll -= e.delta
-        if self.scroll < 0: self.scroll = 0
-        if self.scroll > self.display_height: self.scroll = self.display_height
+        delta = int(e.delta / 120) * SCROLL_STEP * -1 # Resets win32 standart 120 step and invert
+        if delta < 0: self.scroll = max(self.scroll + delta, 0)
+        else: self.scroll = min(self.scroll + delta, self.display_height())
         self.draw()
 
     def scrollmousewheel_darwin(self, e: tkinter.Event) -> None:
-        if e.delta < 0 and self.scroll == 0: return
-        if e.delta > 0 and self.scroll == self.display_height: return
-        e.delta = e.delta * SCROLL_STEP # Resets darwin standart 1 step
-        self.scroll += e.delta
-        if self.scroll < 0: self.scroll = 0
-        if self.scroll > self.display_height: self.scroll = self.display_height
+        delta = e.delta * SCROLL_STEP # Resets darwin standart 1 step
+        if delta < 0: self.scroll = max(self.scroll + delta, 0)
+        else: self.scroll = min(self.scroll + delta, self.display_height())
         self.draw()
 
     def configure(self, e: tkinter.Event) -> None:
-        if self.width == e.width and self.height == e.height: return
-        self.width, self.height = e.width, e.height
-        self.display_list = Layout(self.nodes, width=self.width, direction=self.direction).display_list
-        self.calculate_display_height()
+        global WIDTH
+        global HEIGHT
+        if WIDTH == e.width and HEIGHT == e.height: return
+        WIDTH = e.width
+        HEIGHT = e.height
+        self.document = DocumentLayout(self.nodes)
+        self.document.layout()
+        self.display_list = []
+        paint_tree(self.document, self.display_list)
         self.draw()
 
     # --- Functions
-    def calculate_display_height(self) -> None:
-        if len(self.display_list) == 0:
-            self.display_height = 0
-            return
-        self.display_height = self.display_list[-1][1] - self.height + VSTEP * 2
-        if self.display_height < 0: self.display_height = 0
+    def display_height(self) -> int:
+        h = self.document.height - HEIGHT + VSTEP*2
+        return max(0, h)
 
     def draw(self) -> None:
         self.canvas.delete("all")
         # Draws content
-        for x, y, word, font in self.display_list:
-            # Prevents drawing out of bounds
-            if y > self.scroll + self.height: continue
-            if y + VSTEP < self.scroll: continue
-            y = y - self.scroll
-            # Prints emojis
-            if len(word) == 1 and not word.isalnum() and not word.isascii():
-                code = hex(ord(word))[2:].upper()
-                image_path = os.path.join(BASE_DIR, 'assets', 'emojis', "{}.png".format(code))
-                if os.path.isfile(image_path):
-                    image = tkinter.PhotoImage(file=image_path)
-                    self.canvas.create_image(x, y, image=image, anchor="nw")
-                    self.images.append(image) # Prevents gb collection
-                    continue
-            # Prints text
-            self.canvas.create_text(x, y, text=word, font=font, anchor="nw")
+        for cmd in self.display_list:
+            if cmd.top > self.scroll + HEIGHT: continue
+            if cmd.bottom < self.scroll: continue
+            cmd.execute(self.scroll, self.canvas)
         # Draws scrollbar
-        if self.display_height > 0:
-            ratio = int((self.scroll / self.display_height) * (self.height - VSTEP))
+        dh = self.display_height()
+        if dh > 0:
+            ratio = int((self.scroll / dh) * (HEIGHT - VSTEP))
             self.canvas.create_rectangle(
-                self.width - HSTEP + SCROLLBAR_OFFSET,
+                WIDTH - HSTEP + SCROLLBAR_OFFSET,
                 ratio + SCROLLBAR_OFFSET,
-                self.width - SCROLLBAR_OFFSET,
+                WIDTH - SCROLLBAR_OFFSET,
                 ratio + VSTEP - SCROLLBAR_OFFSET,
                 fill="blue",
-                outline="blue"
+                width=0
             )
 
     def load(self, url: URL) -> None:
@@ -342,15 +330,17 @@ class Browser:
             self.nodes = HTMLSourceParser(body).source()
         else:
             self.nodes = HTMLParser(body).parse()
-        self.display_list = Layout(self.nodes, width=self.width, direction=self.direction).display_list
-        self.calculate_display_height()
+        self.document = DocumentLayout(self.nodes)
+        self.document.layout()
+        self.display_list = []
+        paint_tree(self.document, self.display_list)  
         self.draw()
 
 class Text:
-    def __init__(self, text: str, parent) -> None:
-        self.text = text
-        self.children = []
-        self.parent = parent
+    def __init__(self, text: str, parent: 'Element') -> None:
+        self.text: str = text
+        self.children: list = []
+        self.parent: 'Element' = parent
         # Handles special chars
         for key in SPECIAL_CHARS:
             if key in self.text:
@@ -360,11 +350,11 @@ class Text:
         return self.text
 
 class Element:
-    def __init__(self, tag: str, attributes: dict[str, str], parent) -> None:
-        self.tag = tag
-        self.attributes = attributes
-        self.children = []
-        self.parent = parent
+    def __init__(self, tag: str, attributes: dict[str, str], parent: 'Element | None') -> None:
+        self.tag: str = tag
+        self.attributes: dict[str, str] = attributes
+        self.children: list['Element | Text'] = []
+        self.parent: 'Element | None' = parent
 
     def __repr__(self) -> str:
         attr = " "
@@ -379,24 +369,86 @@ class Element:
         attr = attr[:-1]
         return "<" + self.tag + attr + ">"
 
-class Layout:
-    def __init__(self, nodes: Element, width:int=WIDTH, direction: Literal["ltr", "rtl"] = "ltr") -> None:
-        self.direction: Literal["ltr", "rtl"] = direction
+class BlockLayout:
+    def __init__(
+            self, 
+            node: Element | Text, 
+            parent: 'BlockLayout | DocumentLayout', 
+            previous: 'BlockLayout | None', 
+        ) -> None:
+        self.node: Element | Text = node
+        self.parent: 'BlockLayout | DocumentLayout' = parent
+        self.previous: 'BlockLayout | None' = previous
+        self.children: 'list[BlockLayout]' = []
         self.display_list: list[display] = []
-        self.cursor_x = HSTEP
-        self.cursor_y = VSTEP
-        self.family = "" # Uses default
-        self.size = 16
-        self.weight: Literal['normal', 'bold'] = "normal"
-        self.style: Literal['roman', 'italic'] = "roman"
-        self.width = width
-        self.line: list[line_display] = []
-        self.centered = False
-        self.superscript = False
-        self.abbr = False
-        self.pre = False
-        self.recurse(nodes)
-        self.flush()
+        # ---
+        self.x: int
+        self.y: int
+        self.width: int
+        self.height: int
+
+    def __repr__(self) -> str:
+            if isinstance(self.node, Element):
+                return "<{}> | x{} y{} w{} h{}".format(self.node.tag , self.x, self.y, self.width, self.height)
+            else:
+                return "{} | x{} y{} w{} h{}".format(self.node.text , self.x, self.y, self.width, self.height)
+
+    def layout(self) -> None:
+        if self.previous:
+            self.y = self.previous.y + self.previous.height
+        else:
+            self.y = self.parent.y
+        self.x = self.parent.x
+        self.width = self.parent.width
+        mode = self.layout_mode()
+        if mode == "block":
+            previous = None
+            for child in self.node.children:
+                next = BlockLayout(child, self, previous)
+                self.children.append(next)
+                previous = next
+            for child in self.children:
+                child.layout()
+            self.height = sum([child.height for child in self.children])
+        else:
+            self.cursor_x = 0
+            self.cursor_y = 0
+            self.weight: Literal['normal', 'bold'] = "normal"
+            self.style: Literal['roman', 'italic'] = "roman"
+            self.size = 12
+            self.family = "" # Uses default
+            self.centered = False
+            self.superscript = False
+            self.abbr = False
+            self.pre = False
+            # ---
+            self.line: list[line_display] = []
+            self.recurse(self.node)
+            self.flush()
+            self.height = self.cursor_y
+        
+    def layout_mode(self) -> Literal["inline", "block"]:
+        if isinstance(self.node, Text):
+            return "inline"
+        elif any([isinstance(child, Element) and \
+                  child.tag in BLOCK_ELEMENTS \
+                  for child in self.node.children]):
+            return "block"
+        elif self.node.children:
+            return "inline"
+        else: 
+            return "block"
+
+    def paint(self) -> list['DrawText | DrawRect']:
+        cmds: list[DrawText | DrawRect] = []
+        if isinstance(self.node, Element) and self.node.tag == "pre":
+            x2, y2 = self.x + self.width, self.y + self.height
+            rect = DrawRect(self.x, self.y, x2, y2, "gray")
+            cmds.append(rect)
+        if self.layout_mode() == "inline":
+            for x, y, word, font in self.display_list:
+                cmds.append(DrawText(x, y, word, font))
+        return cmds
 
     def recurse(self, tree: Element| Text) -> None:
         if isinstance(tree, Text):
@@ -438,17 +490,17 @@ class Layout:
         font = get_font(self.family, size, weight, self.style)
         w  = font.measure(word)
         # Auto line breaks
-        if self.cursor_x + w > self.width - HSTEP and not self.pre:
+        if self.cursor_x + w > self.width:
             # Soft hyphens support
             if "\N{soft hyphen}" in word:
                 seq = word
                 remainder = ""
-                while "\N{soft hyphen}" in seq and self.cursor_x + w > self.width - HSTEP:
+                while "\N{soft hyphen}" in seq and self.cursor_x + w > self.width:
                     seq, r = seq.rsplit("\N{soft hyphen}", 1)
                     if remainder: remainder = "\N{soft hyphen}" + remainder # To save \N position
                     remainder = r + remainder
                     seq_w = font.measure(seq + "-")
-                    if self.cursor_x + seq_w > self.width - HSTEP: continue
+                    if self.cursor_x + seq_w > WIDTH - HSTEP: continue
                     seq += "-" # Adds hyphen at separation point
                     self.line.append((self.cursor_x, seq, font, options))
                     self.flush()
@@ -463,32 +515,33 @@ class Layout:
 
     def flush(self) -> None:
         if not self.line: return
-        # <h1 class="title"> - Centerd line support
-        if self.centered:
+        # <h1> - Centerd line support
+        if self.centered: 
             x, word, font, opt = self.line[-1]
             line_end = x + font.measure(word)
-            padding = (self.width - line_end - HSTEP) // 2
+            padding = (WIDTH - line_end - HSTEP) // 2
             for idx, text in enumerate(self.line):
                 self.line[idx] = (text[0] + padding, text[1], text[2], text[3])
         # right-to-left text direction support
-        elif self.direction == "rtl": 
+        elif OPT_DIRECTION == "rtl": 
             x, word, font, opt = self.line[-1]
             line_end = x + font.measure(word)
-            padding = self.width - line_end - HSTEP
+            padding = WIDTH - line_end - HSTEP
             for idx, text in enumerate(self.line):
                 self.line[idx] = (text[0] + padding, text[1], text[2], text[3])
         # ---
         metrics = [font.metrics() for x, word, font, opt in self.line]
         max_ascent = max(metric["ascent"] for metric in metrics)
         baseline = int(self.cursor_y + 1.25 * max_ascent)
-        for x, word, font, opt in self.line:
-            y = baseline - font.metrics("ascent")
+        for rel_x, word, font, opt in self.line:
+            x = self.x + rel_x
+            y = self.y + baseline - font.metrics("ascent")
             if opt["superscript"]: y = self.cursor_y + max_ascent // 3 # <sup> support
             if "\N{soft hyphen}" in word: word = word.replace("\N{soft hyphen}", "") # Removes visible soft hyphen 
             self.display_list.append((x, y, word, font))
         max_descent = max(metric["descent"] for metric in metrics)
         self.cursor_y = int(baseline + 1.25 * max_descent)
-        self.cursor_x = HSTEP
+        self.cursor_x = 0
         self.line = []
 
     def open_tag(self, tag: str) -> None:
@@ -532,6 +585,32 @@ class Layout:
                 self.family = "" # Default font
                 self.flush()
 
+class DocumentLayout:
+    def __init__(self, node: Element) -> None:
+        self.node: Element = node
+        self.parent = None
+        self.children: list[BlockLayout] = []
+        # ---
+        self.x: int
+        self.y: int
+        self.width: int
+        self.height: int
+
+    def __repr__(self) -> str:
+        return "<{}> x{} y{} w{} h{}".format(self.node.tag, self.x, self.y, self.width, self.height)
+
+    def layout(self) -> None:
+        child = BlockLayout(self.node, self, None)
+        self.children.append(child)
+        self.width = WIDTH - 2*HSTEP
+        self.x = HSTEP
+        self.y = VSTEP
+        child.layout()
+        self.height = child.height  
+
+    def paint(self) -> list['DrawText | DrawRect']:
+        return []
+    
 class HTMLParser:    
     def __init__(self, body: str) -> None:
         self.body: str = body
@@ -588,6 +667,7 @@ class HTMLParser:
         tag, attributes = self.get_attributes(tag)
         if tag.startswith("!"): return
         self.implicit_tags(tag)
+        parent: Element | None
         if tag.startswith("/"):
             if len(self.unfinished) == 1: return
             tag_name = tag[1:]
@@ -607,6 +687,7 @@ class HTMLParser:
             parent = self.unfinished[-1]
             if tag_name in UNNESTABLE_TAGS:
                 while tag_name == parent.tag:
+                    if not parent.parent: break
                     parent = parent.parent
             parent.children.append(node)
             # Mis-nesting support
@@ -711,6 +792,51 @@ class HTMLSourceParser(HTMLParser):
         self.add_tag("/pre")
         return self.finish()
 
+class DrawText:
+    def __init__(self, x1: int, y1: int, text: str, font: tkinter.font.Font) -> None:
+        self.top: int = y1
+        self.left: int = x1
+        self.text: str = text
+        self.font: tkinter.font.Font = font
+        self.bottom: int = y1 + font.metrics("linespace")
+        # Emoji handling
+        self.image: tkinter.PhotoImage | None = None
+        if len(text) == 1 and not text.isalnum() and not text.isascii():
+            code = hex(ord(self.text))[2:].upper()
+            image_path = os.path.join(BASE_DIR, 'assets', 'emojis', "{}.png".format(code))
+            if os.path.isfile(image_path):
+                self.image = tkinter.PhotoImage(file=image_path)
+
+    def execute(self, scroll: int, canvas: tkinter.Canvas) -> None:
+        # Prints emojis
+        if self.image:
+            canvas.create_image(self.left, self.top, image=self.image, anchor="nw")
+            return
+        # Prints text
+        canvas.create_text(
+            self.left, self.top - scroll,
+            text=self.text,
+            font=self.font,
+            anchor="nw"
+        )
+
+class DrawRect:
+    def __init__(self, x1: int, y1: int, x2: int, y2: int, color: str) -> None:
+        self.top: int = y1
+        self.left: int = x1 
+        self.bottom: int = y2
+        self.right: int = x2
+        self.color: str = color
+
+    def execute(self, scroll: int, canvas: tkinter.Canvas) -> None:
+        canvas.create_rectangle(
+            self.left, self.top - scroll,
+            self.right, self.bottom - scroll,
+            width=0,
+            fill=self.color
+        )
+
+# ---
 def get_font(family: str, size: int, weight: Literal['normal', 'bold'], style: Literal['roman', 'italic']) -> tkinter.font.Font:
     key = (family, size, weight, style)
     if key not in FONTS:
@@ -733,10 +859,15 @@ def split_cases(text: str) -> list[str]:
     if buffer: out.append(buffer)
     return out
 
-def print_tree(node: Element | Text, indent=0) -> None:
+def print_tree(node, indent=0) -> None:
     print(" " * indent, node)
     for child in node.children:
         print_tree(child, indent+2)
+
+def paint_tree(layout_object: DocumentLayout | BlockLayout, display_list: list[DrawText | DrawRect]) -> None:
+    display_list.extend(layout_object.paint())
+    for child in layout_object.children:
+        paint_tree(child, display_list)
 
 # --- Start
 
@@ -745,5 +876,6 @@ if __name__ == "__main__":
     parser.add_argument("url", type=str, help="Url to visit", nargs="?", default="")
     parser.add_argument("--direction", choices=["ltr", "rtl"], help="Text direction on screen", default="ltr")
     args = parser.parse_args()
-    Browser(direction=args.direction).load(URL(args.url))
+    OPT_DIRECTION = args.direction
+    Browser().load(URL(args.url))
     tkinter.mainloop()
