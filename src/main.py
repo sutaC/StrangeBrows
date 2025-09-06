@@ -399,6 +399,10 @@ class BlockLayout:
         else:
             self.y = self.parent.y
         self.x = self.parent.x
+        # Makes <li> indented
+        if isinstance(self.node, Element) and self.node.tag == "li":
+            self.x += HSTEP
+        # ---
         self.width = self.parent.width
         mode = self.layout_mode()
         if mode == "block":
@@ -453,6 +457,13 @@ class BlockLayout:
                         x2, y2 = self.x + self.width, self.y + self.height
                         rect = DrawRect(self.x, self.y, x2, y2, "light grey")
                         cmds.append(rect)
+                case "li":
+                    x1 = self.x - HSTEP
+                    y1 = self.y + self.height // 2
+                    size = 4
+                    x2, y2 = x1 + size, y1 + size
+                    rect = DrawRect(x1, y1, x2, y2, "black") 
+                    cmds.append(rect)
         if self.layout_mode() == "inline":
             for x, y, word, font in self.display_list:
                 cmds.append(DrawText(x, y, word, font))
@@ -728,7 +739,6 @@ class HTMLParser:
                 self.add_tag("/head")
             else:
                 break
-
 
     def get_attributes(self, text: str) -> tuple[str, dict[str, str]]:
         spl = text.split(None, 1)
