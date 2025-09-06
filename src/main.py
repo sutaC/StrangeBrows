@@ -441,10 +441,17 @@ class BlockLayout:
 
     def paint(self) -> list['DrawText | DrawRect']:
         cmds: list[DrawText | DrawRect] = []
-        if isinstance(self.node, Element) and self.node.tag == "pre":
-            x2, y2 = self.x + self.width, self.y + self.height
-            rect = DrawRect(self.x, self.y, x2, y2, "gray")
-            cmds.append(rect)
+        if isinstance(self.node, Element):
+            match self.node.tag:
+                case "pre":
+                    x2, y2 = self.x + self.width, self.y + self.height
+                    rect = DrawRect(self.x, self.y, x2, y2, "gray")
+                    cmds.append(rect)
+                case "nav":
+                    if "links" in self.node.attributes.get("class", "").split():
+                        x2, y2 = self.x + self.width, self.y + self.height
+                        rect = DrawRect(self.x, self.y, x2, y2, "light grey")
+                        cmds.append(rect)
         if self.layout_mode() == "inline":
             for x, y, word, font in self.display_list:
                 cmds.append(DrawText(x, y, word, font))
@@ -469,7 +476,7 @@ class BlockLayout:
                 # ---
                 self.word(word)
         elif isinstance(tree, Element):
-            self.open_tag(tree.tag)
+            self.open_tag(tree.tag, tree.attributes)
             for child in tree.children:
                 self.recurse(child)
             self.close_tag(tree.tag)
@@ -544,7 +551,7 @@ class BlockLayout:
         self.cursor_x = 0
         self.line = []
 
-    def open_tag(self, tag: str) -> None:
+    def open_tag(self, tag: str, attributes: dict[str, str]) -> None:
         match tag:
             case "i": self.style = "italic"
             case "b": self.weight = "bold"
@@ -556,7 +563,8 @@ class BlockLayout:
             case 'h1': 
                 if self.pre: return
                 self.flush()
-                self.centered = True
+                if "title" in attributes.get("class", "").split(): 
+                    self.centered = True
             case "sup": self.superscript = True
             case "abbr": self.abbr = True
             case "pre": 
@@ -641,7 +649,7 @@ class HTMLParser:
                         self.add_text("<{}>".format(text))
                         text = ""
                         continue
-                elif text.startswith("script"): in_script = True
+                elif text.casefold().startswith("script"): in_script = True
                 self.add_tag(text)
                 text = ""
             elif not in_tag and not c.isalnum() and not c.isascii():
