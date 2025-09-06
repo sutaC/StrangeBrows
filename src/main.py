@@ -399,11 +399,15 @@ class BlockLayout:
         else:
             self.y = self.parent.y
         self.x = self.parent.x
-        # Makes <li> indented
-        if isinstance(self.node, Element) and self.node.tag == "li":
-            self.x += HSTEP
-        # ---
         self.width = self.parent.width
+        # Element specific modifications
+        if isinstance(self.node, Element):
+            match self.node.tag:
+                case "li":
+                    self.x += HSTEP
+                case "nav":
+                    if self.node.attributes.get("id") == "toc":
+                        self.y += VSTEP
         mode = self.layout_mode()
         if mode == "block":
             previous = None
@@ -453,6 +457,14 @@ class BlockLayout:
                     rect = DrawRect(self.x, self.y, x2, y2, "gray")
                     cmds.append(rect)
                 case "nav":
+                    if "toc" == self.node.attributes.get("id"):
+                        text = " Table of Contents "
+                        font = get_font("", 12, "normal", "roman")
+                        y1 = self.y - VSTEP
+                        x2, y2 = self.x + font.measure(text), y1 + font.metrics("linespace")
+                        rect = DrawRect(self.x, y1, x2, y2, "grey")
+                        cmds.append(rect)
+                        cmds.append(DrawText(self.x, y1, text, font))
                     if "links" in self.node.attributes.get("class", "").split():
                         x2, y2 = self.x + self.width, self.y + self.height
                         rect = DrawRect(self.x, self.y, x2, y2, "light grey")
