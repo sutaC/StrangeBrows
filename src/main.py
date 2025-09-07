@@ -429,6 +429,17 @@ class BlockLayout:
                         self.children.append(next)
                         previous = next
                         block = []
+                    # Support for run-in headings
+                    if child.tag == "p" and \
+                    previous and \
+                    isinstance(previous.node, Element) and \
+                    previous.node.tag == "h6":
+                        heading = self.children.pop()
+                        assert isinstance(heading.node, Element)
+                        next = BlockLayout([heading.node, child], self, heading.previous)
+                        self.children.append(next)
+                        previous = next
+                        continue
                     # Add block element
                     next = BlockLayout(child, self, previous)
                     self.children.append(next)
