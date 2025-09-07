@@ -372,11 +372,14 @@ class Element:
 class BlockLayout:
     def __init__(
             self, 
-            node: Element | Text, 
+            node: Element | Text | list[Element | Text], 
             parent: 'BlockLayout | DocumentLayout', 
             previous: 'BlockLayout | None', 
         ) -> None:
-        self.node: Element | Text = node
+        self.node: Element | Text | list[Element | Text] = node
+        if isinstance(self.node, list):
+            if len(self.node) == 0: raise ValueError("Cannot passd empty list as node argument")
+            if len(self.node) == 1: [self.node] = self.node
         self.parent: 'BlockLayout | DocumentLayout' = parent
         self.previous: 'BlockLayout | None' = previous
         self.children: 'list[BlockLayout]' = []
@@ -390,8 +393,11 @@ class BlockLayout:
     def __repr__(self) -> str:
             if isinstance(self.node, Element):
                 return "<{}> | x{} y{} w{} h{}".format(self.node.tag , self.x, self.y, self.width, self.height)
-            else:
+            elif isinstance(self.node, Text):
                 return "{} | x{} y{} w{} h{}".format(self.node.text , self.x, self.y, self.width, self.height)
+            else:
+                ls = ["<{}>".format(n.tag) if isinstance(n, Element) else "..." for n in self.node]
+                return "({}) | x{} y{} w{} h{}".format(', '.join(ls), self.x, self.y, self.width, self.height)
 
     def layout(self) -> None:
         if self.previous:
@@ -408,14 +414,34 @@ class BlockLayout:
                 case "nav":
                     if self.node.attributes.get("id") == "toc":
                         self.y += VSTEP
+        # ---
         mode = self.layout_mode()
         if mode == "block":
+            assert isinstance(self.node, Element) 
             previous = None
+            block = []
             for child in self.node.children:
                 if isinstance(child, Element) and (child.tag in HEAD_TAGS + ["head"]): continue
-                next = BlockLayout(child, self, previous)
+                if isinstance(child, Element) and child.tag in BLOCK_ELEMENTS:
+                    # Add block of elements
+                    if block:
+                        next = BlockLayout(block, self, previous)
+                        self.children.append(next)
+                        previous = next
+                        block = []
+                    # Add block element
+                    next = BlockLayout(child, self, previous)
+                    self.children.append(next)
+                    previous = next
+                else:
+                    block.append(child)
+            # Adds last block of elements
+            if block:
+                next = BlockLayout(block, self, previous)
                 self.children.append(next)
                 previous = next
+                block = []
+            # ---
             for child in self.children:
                 child.layout()
             self.height = sum([child.height for child in self.children])
@@ -432,12 +458,15 @@ class BlockLayout:
             self.pre = False
             # ---
             self.line: list[line_display] = []
-            self.recurse(self.node)
+            for n in self.node if isinstance(self.node, list) else [self.node]:
+                self.recurse(n)
             self.flush()
             self.height = self.cursor_y
         
     def layout_mode(self) -> Literal["inline", "block"]:
-        if isinstance(self.node, Text):
+        if isinstance(self.node, list):
+            return "inline"
+        elif isinstance(self.node, Text):
             return "inline"
         elif any([isinstance(child, Element) and \
                   child.tag in BLOCK_ELEMENTS \
