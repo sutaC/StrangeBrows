@@ -2,6 +2,9 @@ pre {
     background-color: gray;
     font-family: Courier;
 }
+code {
+    font-family: Courier;
+}
 a {
     color: blue;
 }
