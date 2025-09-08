@@ -14,9 +14,11 @@ import tkinter.font
 
 word_options = dict[str, Any]
 line_display = tuple[int, str, tkinter.font.Font, word_options]
-display = tuple[int, int, str, tkinter.font.Font]
+display = tuple[int, int, str, tkinter.font.Font, str]
+CSS_rule = tuple['TagSelector | DescendantSelector', dict[str, str]]
 
-BASE_DIR = os.path.join(os.path.dirname(__file__), os.pardir)
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir))
+DEFAULT_PAGE_URL = "file://" + os.path.join(BASE_DIR, "assets", "home.html")
 WIDTH, HEIGHT = 800, 600
 REDIRECT_LIMIT = 5
 HSTEP, VSTEP = 13, 18
@@ -56,6 +58,13 @@ BLOCK_ELEMENTS = [
     "figcaption", "main", "div", "table", "form", "fieldset",
     "legend", "details", "summary"
 ]
+INHERITED_PROPERTIES = {
+    "font-size": "16px",
+    "font-style": "normal",
+    "font-weight": "normal",
+    "color": "black",
+    "font-family": "Arial"
+}
 
 class Cache:
     def __init__(self, dir: str = ".") -> None:
@@ -100,17 +109,37 @@ class Cache:
         self.con.commit()
         cursor.close()
 
-
 class URL:
     def __init__(self, url: str):
         self.CACHE = Cache(os.path.join(BASE_DIR, "cache.sqlite"))
         self.redirect_count = 0
         self.saved_socket: socket.socket | None = None
         if not url:
-            url = "file://" + os.path.join(BASE_DIR, "assets", "home.html")
+            url = DEFAULT_PAGE_URL
         self.url: str = url
         try:
-            self.parse(self.url)
+            self.view_source = url.startswith("view-source:")
+            if self.view_source:
+                url = url[len("view-source:"):]
+            if url == "about:blank": return
+            if url.startswith("data"):
+                self.scheme, url = url.split(":", 1)
+                self.type, self.content = url.split(",", 1)
+                return            
+            self.scheme, url = url.split("://", 1)
+            assert self.scheme in ["http", "https", "file", "data"]
+            if self.scheme == "http":
+                self.port = 80
+            elif self.scheme == "https":
+                self.port = 443
+            if self.scheme == "data": return
+            if "/" not in url:
+                url = url + "/"
+            self.host, url = url.split("/", 1)
+            self.path = "/" + url
+            if ":" in self.host:
+                self.host, port = self.host.split(":", 1)
+                self.port = int(port)
         except:
             print("Recived malformed url '{}', unable to continue...".format(self.url))
             self.url = "about:blank"
@@ -120,30 +149,19 @@ class URL:
         if self.saved_socket is not None:
             self.saved_socket.close()
 
-    def parse(self, url: str) -> None:
-        self.view_source = url.startswith("view-source:")
-        if self.view_source:
-            url = url[len("view-source:"):]
-        if url == "about:blank": return
-        if url.startswith("data"):
-            self.scheme, url = url.split(":", 1)
-            self.type, self.content = url.split(",", 1)
-            return            
-        self.scheme, url = url.split("://", 1)
-        assert self.scheme in ["http", "https", "file", "data"]
-        if self.scheme == "http":
-            self.port = 80
-        elif self.scheme == "https":
-            self.port = 443
-        if self.scheme == "data": return
-        if "/" not in url:
-            url = url + "/"
-        self.host, url = url.split("/", 1)
-        self.path = "/" + url
-        if ":" in self.host:
-            self.host, port = self.host.split(":", 1)
-            self.port = int(port)
-
+    def resolve(self, url: str) -> 'URL':
+        if "://" in  url: return URL(url)
+        if not url.startswith("/", 1):
+            dir, _ = self.path.rsplit("/", 1)
+            while url.startswith("../"):
+                _, url = url.rsplit("/", 1)
+                if "/" in dir:
+                    dir, _ = self.path.rsplit("/", 1)
+            url = dir + "/" + url
+        if url.startswith("//"):
+            return URL(self.scheme + ":" + url)
+        else:
+            return URL(self.scheme + "://" + self.host + ":" + str(self.port) + url)
 
     def request(self) -> str:
         if self.url == "about:blank":
@@ -198,11 +216,10 @@ class URL:
             if self.redirect_count > REDIRECT_LIMIT:
                 raise Exception("Reached redirection limit")
             location: str = response_headers["location"]
-            if location.startswith("/"):
-                self.path = location
-            else:
-                self.parse(location)
-            return self.request()
+            new_url = self.resolve(location)
+            new_url.saved_socket = self.saved_socket
+            new_url.redirect_count = self.redirect_count
+            return new_url.request()
         else:
             self.redirect_count = 0
         content: str
@@ -238,109 +255,12 @@ class URL:
                 self.CACHE.add(self.url, expires, content)
         return content
 
-class Browser:
-    def __init__(self) -> None:
-        self.images: list[tkinter.PhotoImage] = []
-        self.window = tkinter.Tk()
-        self.window.title("StrangeBrows")
-        self.canvas = tkinter.Canvas(
-            self.window,
-            width=WIDTH,
-            height=HEIGHT,
-        )
-        self.canvas.pack(fill="both", expand=1)
-        self.display_list: list[DrawText | DrawRect] = []
-        self.scroll = 0
-        self.window.bind("<Up>", self.scrollup)
-        self.window.bind("<Down>", self.scrolldown)
-        self.window.bind("<Configure>", self.configure)
-        # System dependent
-        match sys.platform:
-            case 'linux':
-                self.window.bind("<Button-4>", self.scrollup)
-                self.window.bind("<Button-5>", self.scrolldown)
-            case 'darwin':
-                self.window.bind("<MouseWheel>", self.scrollmousewheel_darwin)
-            case 'win32':
-                self.window.bind("<MouseWheel>", self.scrollmousewheel_win32)
-            case _:
-                raise Exception("Unsuported platform '{}'".format(sys.platform))
-
-    # --- Event handlers
-    def scrollup(self, e: tkinter.Event) -> None:
-        self.scroll = max(self.scroll - SCROLL_STEP, 0)
-        self.draw()
-
-    def scrolldown(self, e: tkinter.Event) -> None:
-        self.scroll = min(self.scroll + SCROLL_STEP, self.display_height())
-        self.draw()
-
-    def scrollmousewheel_win32(self, e: tkinter.Event) -> None:
-        delta = int(e.delta / 120) * SCROLL_STEP * -1 # Resets win32 standart 120 step and invert
-        if delta < 0: self.scroll = max(self.scroll + delta, 0)
-        else: self.scroll = min(self.scroll + delta, self.display_height())
-        self.draw()
-
-    def scrollmousewheel_darwin(self, e: tkinter.Event) -> None:
-        delta = e.delta * SCROLL_STEP # Resets darwin standart 1 step
-        if delta < 0: self.scroll = max(self.scroll + delta, 0)
-        else: self.scroll = min(self.scroll + delta, self.display_height())
-        self.draw()
-
-    def configure(self, e: tkinter.Event) -> None:
-        global WIDTH
-        global HEIGHT
-        if WIDTH == e.width and HEIGHT == e.height: return
-        WIDTH = e.width
-        HEIGHT = e.height
-        self.document = DocumentLayout(self.nodes)
-        self.document.layout()
-        self.display_list = []
-        paint_tree(self.document, self.display_list)
-        self.draw()
-
-    # --- Functions
-    def display_height(self) -> int:
-        h = self.document.height - HEIGHT + VSTEP*2
-        return max(0, h)
-
-    def draw(self) -> None:
-        self.canvas.delete("all")
-        # Draws content
-        for cmd in self.display_list:
-            if cmd.top > self.scroll + HEIGHT: continue
-            if cmd.bottom < self.scroll: continue
-            cmd.execute(self.scroll, self.canvas)
-        # Draws scrollbar
-        dh = self.display_height()
-        if dh > 0:
-            ratio = int((self.scroll / dh) * (HEIGHT - VSTEP))
-            self.canvas.create_rectangle(
-                WIDTH - HSTEP + SCROLLBAR_OFFSET,
-                ratio + SCROLLBAR_OFFSET,
-                WIDTH - SCROLLBAR_OFFSET,
-                ratio + VSTEP - SCROLLBAR_OFFSET,
-                fill="blue",
-                width=0
-            )
-
-    def load(self, url: URL) -> None:
-        body = url.request()
-        if url.view_source:
-            self.nodes = HTMLSourceParser(body).source()
-        else:
-            self.nodes = HTMLParser(body).parse()
-        self.document = DocumentLayout(self.nodes)
-        self.document.layout()
-        self.display_list = []
-        paint_tree(self.document, self.display_list)  
-        self.draw()
-
 class Text:
     def __init__(self, text: str, parent: 'Element') -> None:
         self.text: str = text
         self.children: list = []
         self.parent: 'Element' = parent
+        self.style: dict[str, str] = {}
         # Handles special chars
         for key in SPECIAL_CHARS:
             if key in self.text:
@@ -355,6 +275,7 @@ class Element:
         self.attributes: dict[str, str] = attributes
         self.children: list['Element | Text'] = []
         self.parent: 'Element | None' = parent
+        self.style: dict[str, str] = {}
 
     def __repr__(self) -> str:
         attr = " "
@@ -459,10 +380,6 @@ class BlockLayout:
         else:
             self.cursor_x = 0
             self.cursor_y = 0
-            self.weight: Literal['normal', 'bold'] = "normal"
-            self.style: Literal['roman', 'italic'] = "roman"
-            self.size = 12
-            self.family = "" # Uses default
             self.centered = False
             self.superscript = False
             self.abbr = False
@@ -490,12 +407,9 @@ class BlockLayout:
 
     def paint(self) -> list['DrawText | DrawRect']:
         cmds: list[DrawText | DrawRect] = []
+        # Element specific defaults
         if isinstance(self.node, Element):
             match self.node.tag:
-                case "pre":
-                    x2, y2 = self.x + self.width, self.y + self.height
-                    rect = DrawRect(self.x, self.y, x2, y2, "gray")
-                    cmds.append(rect)
                 case "nav":
                     if "toc" == self.node.attributes.get("id"):
                         text = " Table of Contents "
@@ -504,7 +418,7 @@ class BlockLayout:
                         x2, y2 = self.x + font.measure(text), y1 + font.metrics("linespace")
                         rect = DrawRect(self.x, y1, x2, y2, "grey")
                         cmds.append(rect)
-                        cmds.append(DrawText(self.x, y1, text, font))
+                        cmds.append(DrawText(self.x, y1, text, font, INHERITED_PROPERTIES["color"]))
                     if "links" in self.node.attributes.get("class", "").split():
                         x2, y2 = self.x + self.width, self.y + self.height
                         rect = DrawRect(self.x, self.y, x2, y2, "light grey")
@@ -516,40 +430,54 @@ class BlockLayout:
                     x2, y2 = x1 + size, y1 + size
                     rect = DrawRect(x1, y1, x2, y2, "black") 
                     cmds.append(rect)
+        # Author styles
+        for node in self.node if isinstance(self.node, list) else [self.node]:
+            if not isinstance(node, Element): continue
+            bgcolor = node.style.get("background-color", "transparent")
+            if bgcolor != "transparent":
+                x2, y2 = self.x + self.width, self.y + self.height
+                rect = DrawRect(self.x, self.y, x2, y2, bgcolor)
+                cmds.append(rect)
+        # Text
         if self.layout_mode() == "inline":
-            for x, y, word, font in self.display_list:
-                cmds.append(DrawText(x, y, word, font))
+            for x, y, word, font, color in self.display_list:
+                cmds.append(DrawText(x, y, word, font, color))
         return cmds
 
-    def recurse(self, tree: Element| Text) -> None:
-        if isinstance(tree, Text):
+    def recurse(self, node: Element | Text) -> None:
+        if isinstance(node, Text):
             # <pre> support
             if self.pre:
-                words = tree.text.split("\n")
+                words = node.text.split("\n")
                 for idx, word in enumerate(words):
-                    self.word(word)
+                    self.word(node, word)
                     if idx < len(words) - 1: self.flush()
                 return
             # ---
-            for word in tree.text.split():
+            for word in node.text.split():
                 # <abbr> support
                 if self.abbr:
                     for word in split_cases(word):
-                        self.word(word)
+                        self.word(node, word)
                     return
                 # ---
-                self.word(word)
-        elif isinstance(tree, Element):
-            self.open_tag(tree.tag, tree.attributes)
-            for child in tree.children:
+                self.word(node, word)
+        else:
+            self.open_tag(node.tag, node.attributes)
+            for child in node.children:
                 self.recurse(child)
-            self.close_tag(tree.tag)
+            self.close_tag(node.tag)
 
-    def word(self, word: str) -> None:
-        weight = self.weight
-        size = self.size
+    def word(self, node: Text, word: str) -> None:
+        color = node.style["color"]
+        weight = node.style["font-weight"]
+        style = node.style["font-style"]
+        family  = node.style["font-family"]
+        if style == "normal": style = "roman"
+        size = int(float(node.style["font-size"][:-2]) * .75)
         options: dict[str, Any] = {
-            "superscript": self.superscript
+            "superscript": self.superscript,
+            "color": color
         }
         # <abbr> support
         if self.abbr and word.islower():
@@ -558,7 +486,7 @@ class BlockLayout:
             if not self.superscript: size = int(size * 0.75)
         # <sup> support
         if self.superscript: size //= 2
-        font = get_font(self.family, size, weight, self.style)
+        font = get_font(family, size, weight, style) # type: ignore
         w  = font.measure(word)
         # Auto line breaks
         if self.cursor_x + w > self.width:
@@ -605,11 +533,12 @@ class BlockLayout:
         max_ascent = max(metric["ascent"] for metric in metrics)
         baseline = int(self.cursor_y + 1.25 * max_ascent)
         for rel_x, word, font, opt in self.line:
+            color: str = opt["color"]
             x = self.x + rel_x
             y = self.y + baseline - font.metrics("ascent")
             if opt["superscript"]: y = self.cursor_y + max_ascent // 3 # <sup> support
             if "\N{soft hyphen}" in word: word = word.replace("\N{soft hyphen}", "") # Removes visible soft hyphen 
-            self.display_list.append((x, y, word, font))
+            self.display_list.append((x, y, word, font, color))
         max_descent = max(metric["descent"] for metric in metrics)
         self.cursor_y = int(baseline + 1.25 * max_descent)
         self.cursor_x = 0
@@ -617,44 +546,31 @@ class BlockLayout:
 
     def open_tag(self, tag: str, attributes: dict[str, str]) -> None:
         match tag:
-            case "i": self.style = "italic"
-            case "b": self.weight = "bold"
-            case "small": self.size -= 2
-            case "big": self.size += 4
             case "br": 
                 if self.pre: return
                 self.flush()
             case 'h1': 
                 if self.pre: return
-                self.flush()
                 if "title" in attributes.get("class", "").split(): 
                     self.centered = True
             case "sup": self.superscript = True
             case "abbr": self.abbr = True
-            case "pre": 
-                self.pre = True
-                self.family = "Courier New"
-                self.flush()
+            case "pre": self.pre = True
 
     def close_tag(self, tag: str) -> None:
         match tag:
-            case "i": self.style = "roman"
-            case "b": self.weight = "normal"
-            case "small": self.size += 2
-            case "big": self.size -= 4
             case "p": 
                 if self.pre: return
                 self.flush()
                 self.cursor_y += VSTEP
             case "h1":
                 if self.pre: return
-                if self.centered: self.flush()
+                self.flush()
                 self.centered = False
             case "sup": self.superscript = False
             case "abbr": self.abbr = False
             case "pre": 
                 self.pre = False
-                self.family = "" # Default font
                 self.flush()
 
 class DocumentLayout:
@@ -863,13 +779,130 @@ class HTMLSourceParser(HTMLParser):
         self.add_tag("/pre")
         return self.finish()
 
+class TagSelector:
+    def __init__(self, tag: str) -> None:
+        self.tag: str = tag
+        self.priority = 1
+
+    def __repr__(self) -> str:
+        return "*|{}|".format(self.tag)
+
+    def matches(self, node: Element | Text) -> bool:
+        return isinstance(node, Element) and self.tag == node.tag
+
+class DescendantSelector:
+    def __init__(self, ancestor: 'TagSelector | DescendantSelector', descendant: TagSelector) -> None:
+        self.ancestor: 'TagSelector | DescendantSelector' = ancestor
+        self.descendant: TagSelector = descendant
+        self.priority = ancestor.priority + descendant.priority
+
+    def __repr__(self) -> str:
+        return "*|{} {}|".format(self.ancestor.__repr__()[2:-1], self.descendant.__repr__()[2:-1])
+
+    def matches(self, node: Element | Text):
+        if not self.descendant.matches(node): return False
+        while node.parent:
+            if self.ancestor.matches(node.parent): return True
+            node = node.parent
+        return False
+
+class CSSParser:
+    def __init__(self, s: str) -> None:
+        self.s: str = s
+        self.i = 0
+
+    def whitespace(self) -> None:
+        while self.i < len(self.s) and self.s[self.i].isspace():
+            self.i += 1
+    
+    def word(self) -> str:
+        start = self.i
+        while self.i < len(self.s):
+            if self.s[self.i].isalnum() or self.s[self.i] in "#-.%":
+                self.i += 1
+            else:
+                break
+        if not (self.i > start):
+            raise Exception("Parsing error")
+        return self.s[start:self.i]
+
+    def literal(self, literal: str) -> None:
+        if not (self.i < len(self.s)) and (self.s[self.i] == literal):
+            raise Exception("Parsing error")
+        self.i += 1
+
+    def pair(self) -> tuple[str, str]:
+        prop = self.word()
+        self.whitespace()
+        self.literal(":")
+        self.whitespace()
+        val = self.word()
+        return prop.casefold(), val
+    
+    def ignore_until(self, chars: list[str]) -> str | None:
+        while self.i < len(self.s):
+            if self.s[self.i] in chars:
+                return self.s[self.i]
+            else:
+                self.i += 1
+        return None
+
+    def body(self) -> dict[str, str]:
+        pairs: dict[str, str] = {}
+        while self.i < len(self.s) and self.s[self.i] != "}":
+            try:
+                prop, val = self.pair()
+                pairs[prop] = val
+                self.whitespace()
+                self.literal(";")
+                self.whitespace()
+            except Exception:
+                why = self.ignore_until([";", "}"])
+                if why == ";":
+                    self.literal(";")
+                    self.whitespace()
+                else:
+                    break
+        return pairs
+    
+    def selector(self) -> TagSelector | DescendantSelector:
+        out = TagSelector(self.word().casefold())
+        self.whitespace()
+        while self.i < len(self.s) and self.s[self.i] != "{":
+            tag = self.word()
+            descendant = TagSelector(tag.casefold())
+            out = DescendantSelector(out, descendant)
+            self.whitespace()
+        return out
+    
+    def parse(self) -> list[CSS_rule]:
+        rules: list[CSS_rule] = []
+        while self.i < len(self.s):
+            try:
+                self.whitespace()
+                selector = self.selector()
+                self.literal("{")
+                self.whitespace()
+                body = self.body()
+                self.literal("}")
+                rules.append((selector, body))  
+            except Exception:
+                why = self.ignore_until(["}"])
+                if why == "}":
+                    self.literal("}")
+                    self.whitespace()
+                else:
+                    break
+        return rules
+
 class DrawText:
-    def __init__(self, x1: int, y1: int, text: str, font: tkinter.font.Font) -> None:
+    def __init__(self, x1: int, y1: int, text: str, font: tkinter.font.Font, color: str) -> None:
         self.top: int = y1
         self.left: int = x1
         self.text: str = text
         self.font: tkinter.font.Font = font
         self.bottom: int = y1 + font.metrics("linespace")
+        self.color: str = color
         # Emoji handling
         self.image: tkinter.PhotoImage | None = None
         if len(text) == 1 and not text.isalnum() and not text.isascii():
@@ -888,7 +921,8 @@ class DrawText:
             self.left, self.top - scroll,
             text=self.text,
             font=self.font,
-            anchor="nw"
+            anchor="nw",
+            fill=self.color
         )
 
 class DrawRect:
@@ -906,6 +940,128 @@ class DrawRect:
             width=0,
             fill=self.color
         )
+
+# --- 
+DEFAULT_STYLE_SHEET = CSSParser(
+    open(
+        os.path.join(BASE_DIR, "assets", "browser.css")
+    ).read()
+).parse()
+
+# ---
+class Browser:
+    def __init__(self) -> None:
+        self.images: list[tkinter.PhotoImage] = []
+        self.window = tkinter.Tk()
+        self.window.title("StrangeBrows")
+        self.canvas = tkinter.Canvas(
+            self.window,
+            width=WIDTH,
+            height=HEIGHT,
+            bg="white"
+        )
+        self.canvas.pack(fill="both", expand=1)
+        self.display_list: list[DrawText | DrawRect] = []
+        self.scroll = 0
+        self.window.bind("<Up>", self.scrollup)
+        self.window.bind("<Down>", self.scrolldown)
+        self.window.bind("<Configure>", self.configure)
+        # System dependent
+        match sys.platform:
+            case 'linux':
+                self.window.bind("<Button-4>", self.scrollup)
+                self.window.bind("<Button-5>", self.scrolldown)
+            case 'darwin':
+                self.window.bind("<MouseWheel>", self.scrollmousewheel_darwin)
+            case 'win32':
+                self.window.bind("<MouseWheel>", self.scrollmousewheel_win32)
+            case _:
+                raise Exception("Unsuported platform '{}'".format(sys.platform))
+
+    # --- Event handlers
+    def scrollup(self, e: tkinter.Event) -> None:
+        self.scroll = max(self.scroll - SCROLL_STEP, 0)
+        self.draw()
+
+    def scrolldown(self, e: tkinter.Event) -> None:
+        self.scroll = min(self.scroll + SCROLL_STEP, self.display_height())
+        self.draw()
+
+    def scrollmousewheel_win32(self, e: tkinter.Event) -> None:
+        delta = int(e.delta / 120) * SCROLL_STEP * -1 # Resets win32 standart 120 step and invert
+        if delta < 0: self.scroll = max(self.scroll + delta, 0)
+        else: self.scroll = min(self.scroll + delta, self.display_height())
+        self.draw()
+
+    def scrollmousewheel_darwin(self, e: tkinter.Event) -> None:
+        delta = e.delta * SCROLL_STEP # Resets darwin standart 1 step
+        if delta < 0: self.scroll = max(self.scroll + delta, 0)
+        else: self.scroll = min(self.scroll + delta, self.display_height())
+        self.draw()
+
+    def configure(self, e: tkinter.Event) -> None:
+        global WIDTH
+        global HEIGHT
+        if WIDTH == e.width and HEIGHT == e.height: return
+        WIDTH = e.width
+        HEIGHT = e.height
+        self.document = DocumentLayout(self.nodes)
+        self.document.layout()
+        self.display_list = []
+        paint_tree(self.document, self.display_list)
+        self.draw()
+
+    # --- Functions
+    def display_height(self) -> int:
+        h = self.document.height - HEIGHT + VSTEP*2
+        return max(0, h)
+
+    def draw(self) -> None:
+        self.canvas.delete("all")
+        # Draws content
+        for cmd in self.display_list:
+            if cmd.top > self.scroll + HEIGHT: continue
+            if cmd.bottom < self.scroll: continue
+            cmd.execute(self.scroll, self.canvas)
+        # Draws scrollbar
+        dh = self.display_height()
+        if dh > 0:
+            ratio = int((self.scroll / dh) * (HEIGHT - VSTEP))
+            self.canvas.create_rectangle(
+                WIDTH - HSTEP + SCROLLBAR_OFFSET,
+                ratio + SCROLLBAR_OFFSET,
+                WIDTH - SCROLLBAR_OFFSET,
+                ratio + VSTEP - SCROLLBAR_OFFSET,
+                fill="blue",
+                width=0
+            )
+
+    def load(self, url: URL) -> None:
+        body = url.request()
+        if url.view_source:
+            self.nodes = HTMLSourceParser(body).source()
+        else:
+            self.nodes = HTMLParser(body).parse()
+        rules = DEFAULT_STYLE_SHEET.copy()
+        links = [node.attributes["href"]
+            for node in tree_to_list(self.nodes, [])
+            if isinstance(node, Element)
+            and node.tag == "link"
+            and node.attributes.get("rel") == "stylesheet"
+            and "href" in node.attributes]  
+        for link in links:
+            style_url = url.resolve(link)
+            try:
+                body = style_url.request()
+            except:
+                continue
+            rules.extend(CSSParser(body).parse()) 
+        style(self.nodes, sorted(rules, key=cascade_priority))
+        self.document = DocumentLayout(self.nodes)
+        self.document.layout()
+        self.display_list = []
+        paint_tree(self.document, self.display_list)  
+        self.draw()
 
 # ---
 def get_font(family: str, size: int, weight: Literal['normal', 'bold'], style: Literal['roman', 'italic']) -> tkinter.font.Font:
@@ -930,6 +1086,42 @@ def split_cases(text: str) -> list[str]:
     if buffer: out.append(buffer)
     return out
 
+def style(node: Element | Text, rules: list[CSS_rule]) -> None:
+    node.style = {}
+    for property, default_value in INHERITED_PROPERTIES.items():
+        if node.parent:
+            node.style[property] = node.parent.style[property]
+        else:
+            node.style[property] = default_value
+    for selector, body in rules:
+        if not selector.matches(node): continue
+        for property, value in body.items():
+            node.style[property] = value
+    if isinstance(node, Element) and "style" in node.attributes:
+        pairs = CSSParser(node.attributes["style"]).body()
+        for property, value in pairs.items():
+            node.style[property] = value
+    if node.style["font-size"].endswith("%"):
+        if node.parent:
+            parent_font_size = node.parent.style["font-size"]
+        else:
+            parent_font_size = INHERITED_PROPERTIES["font-size"]
+        node_pct = float(node.style["font-size"][:-1]) / 100
+        parent_px = float(parent_font_size[:-2])
+        node.style["font-size"] = str(node_pct * parent_px) + "px"
+    for child in node.children:
+        style(child, rules)
+
+def cascade_priority(rule: CSS_rule) -> int:
+    selector, body = rule
+    return selector.priority
+
+def tree_to_list(tree, ls: list) -> list:
+    ls.append(tree)
+    for child in tree.children:
+        tree_to_list(child, ls)
+    return ls
+
 def print_tree(node, indent=0) -> None:
     print(" " * indent, node)
     for child in node.children:
@@ -941,7 +1133,6 @@ def paint_tree(layout_object: DocumentLayout | BlockLayout, display_list: list[D
         paint_tree(child, display_list)
 
 # --- Start
-
 if __name__ == "__main__":
     parser = ArgumentParser(description="Simple web browser")
     parser.add_argument("url", type=str, help="Url to visit", nargs="?", default="")
