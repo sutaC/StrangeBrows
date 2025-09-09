@@ -26,7 +26,7 @@ class Selector(ABC):
 class TagSelector(Selector):
     def __init__(self, tag: str) -> None:
         self.tag: str = tag
-        self.priority = 2
+        self.priority = 3
 
     def __repr__(self) -> str:
         return "*|{}|".format(self.tag)
@@ -37,13 +37,24 @@ class TagSelector(Selector):
 class ClassSelector(Selector):
     def __init__(self, cls: str) -> None:
         self.cls: str = cls.removeprefix(".")
-        self.priority = 1
+        self.priority = 2
 
     def __repr__(self) -> str:
         return "*|.{}|".format(self.cls)
     
     def matches(self, node: Element | Text) -> bool:
         return isinstance(node, Element) and self.cls in node.attributes.get("class", "").split()
+
+class IdSelector(Selector):
+    def __init__(self, cls: str) -> None:
+        self.id: str = cls.removeprefix("#")
+        self.priority = 1
+
+    def __repr__(self) -> str:
+        return "*|#{}|".format(self.id)
+    
+    def matches(self, node: Element | Text) -> bool:
+        return isinstance(node, Element) and self.id == node.attributes.get("id")
 
 class DescendantSelector(Selector):
     def __init__(self, ancestor: Selector, descendant: Selector) -> None:
@@ -125,11 +136,11 @@ class CSSParser:
     
     def selector(self) -> Selector:
         name = self.word().casefold()
-        out = ClassSelector(name) if name.startswith(".") else TagSelector(name)
+        out = get_selector(name)
         self.whitespace()
         while self.i < len(self.s) and self.s[self.i] != "{":
             name = self.word()
-            descendant = ClassSelector(name) if name.startswith(".") else TagSelector(name)
+            descendant = get_selector(name)
             out = DescendantSelector(out, descendant)
             self.whitespace()
         return out
@@ -183,3 +194,11 @@ def style(node: Element | Text, rules: list[CSS_rule]) -> None:
 def cascade_priority(rule: CSS_rule) -> int:
     selector, body = rule
     return selector.priority
+
+def get_selector(name: str) -> Selector:
+    if name.startswith("#"):
+        return IdSelector(name)
+    elif name.startswith("."):
+        return ClassSelector(name)
+    else:
+        return TagSelector(name)

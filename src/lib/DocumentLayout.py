@@ -9,14 +9,6 @@ FONTS: dict[
     tuple[str, int, Literal['normal', 'bold'], Literal['roman', 'italic']], 
     tuple[tkinter.font.Font, tkinter.Label]
 ] = {}
-BLOCK_ELEMENTS = [
-    "html", "body", "article", "section", "nav", "aside",
-    "h1", "h2", "h3", "h4", "h5", "h6", "hgroup", "header",
-    "footer", "address", "p", "hr", "pre", "blockquote",
-    "ol", "ul", "menu", "li", "dl", "dt", "dd", "figure",
-    "figcaption", "main", "div", "table", "form", "fieldset",
-    "legend", "details", "summary"
-]
 
 word_options = dict[str, Any]
 line_display = tuple[int, str, tkinter.font.Font, word_options]
@@ -117,7 +109,7 @@ class BlockLayout:
             block = []
             for child in self.node.children:
                 if isinstance(child, Element) and (child.tag in HEAD_TAGS + ["head"]): continue
-                if isinstance(child, Element) and child.tag in BLOCK_ELEMENTS:
+                if isinstance(child, Element) and child.style.get("display") == "block":
                     # Add block of elements
                     if block:
                         next = BlockLayout(block, self, previous, self.dimensions)
@@ -157,6 +149,9 @@ class BlockLayout:
                 self.height =  int(self.node.style["height"][:-2])
             else:
                 self.height = sum([child.height for child in self.children])
+            # <p> bottom padding
+            if isinstance(self.node, Element) and self.node.tag == "p":
+                self.height += self.dimensions["vstep"]
             # ---
         else:
             self.cursor_x = 0
@@ -177,16 +172,10 @@ class BlockLayout:
     def layout_mode(self) -> Literal["inline", "block"]:
         if isinstance(self.node, list):
             return "inline"
-        elif isinstance(self.node, Text):
-            return "inline"
-        elif any([isinstance(child, Element) and \
-                  child.tag in BLOCK_ELEMENTS \
-                  for child in self.node.children]):
+        if self.node.style.get("display") == "block":
             return "block"
-        elif self.node.children:
+        else:
             return "inline"
-        else: 
-            return "block"
 
     def paint(self) -> list['DrawText | DrawRect']:
         cmds: list[DrawText | DrawRect] = []
@@ -246,10 +235,6 @@ class BlockLayout:
             # ---
             for child in node.children:
                 self.recurse(child)
-            # <p> bottom padding
-            if node.tag == "p":
-                self.flush()
-                self.cursor_y += self.dimensions["vstep"]
 
     def word(self, node: Text, word: str) -> None:
         color = node.style["color"]
