@@ -126,7 +126,7 @@ class Browser:
                 body = style_url.request()
             except:
                 continue
-            rules.extend(CSSParser(body).parse()) 
+            rules.extend(CSSParser(body).parse())
         style(self.nodes, sorted(rules, key=cascade_priority))
         self.document = DocumentLayout(self.nodes, self.dimensions)
         self.document.layout()

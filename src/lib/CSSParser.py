@@ -12,6 +12,15 @@ INHERITED_PROPERTIES = {
     "font-variant": "normal",
     "white-space": "normal"
 }
+# property options-(any if empty) required
+SHORTHAND_PROPERTIES = {
+    "font": [
+        ("font-style", ["italic", "normal"], False),
+        ("font-weight", ["bold", "normal"], False),
+        ("font-size", [], True),
+        ("font-style", [], True),
+    ]
+}
 
 CSS_rule = tuple['Selector', dict[str, str]]
 
@@ -105,9 +114,20 @@ class CSSParser:
         self.whitespace()
         self.literal(":")
         self.whitespace()
-        val = self.word()
+        val, _ = self.read_until([";", "}"])
         return prop.casefold(), val
     
+    def read_until(self, chars: list[str]) -> tuple[str, str]:
+        start = self.i
+        while self.i < len(self.s):
+            if self.s[self.i] in chars:
+                if not (self.i > start):
+                    raise Exception("Parsing error")
+                return (self.s[start:self.i], self.s[self.i])
+            else:
+                self.i += 1
+        raise Exception("Parsing error")
+
     def ignore_until(self, chars: list[str]) -> str | None:
         while self.i < len(self.s):
             if self.s[self.i] in chars:
@@ -174,8 +194,26 @@ def style(node: Element | Text, rules: list[CSS_rule]) -> None:
             node.style[property] = default_value
     for selector, body in rules:
         if not selector.matches(node): continue
-        for property, value in body.items():
-            node.style[property] = value
+        for property, value in body.items():  
+            # shorthand prop support
+            if property in SHORTHAND_PROPERTIES: 
+                shorthand = SHORTHAND_PROPERTIES[property]
+                i = 0
+                while i < len(shorthand) - 1:
+                    seg, value = value.split(None, 1)
+                    ext_prop, vals, req = shorthand[i]
+                    while not req and \
+                    not (len(vals) == 0) and \
+                    not (seg in vals) and \
+                    i < len(shorthand) - 1:
+                        i += 1
+                        ext_prop, vals, req = shorthand[i]
+                    node.style[ext_prop] = seg
+                    i += 1
+                ext_prop = shorthand[i][0]
+                node.style[ext_prop] = value
+            else:
+                node.style[property] = value
     if isinstance(node, Element) and "style" in node.attributes:
         pairs = CSSParser(node.attributes["style"]).body()
         for property, value in pairs.items():

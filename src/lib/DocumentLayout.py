@@ -237,11 +237,18 @@ class BlockLayout:
                 self.recurse(child)
 
     def word(self, node: Text, word: str) -> None:
+        # Prop type checking
+        weight: Literal["bold", "normal"]
+        if node.style["font-weight"] in ["bold", "normal"]: weight = node.style["font-weight"] # type: ignore
+        else: weight = "normal"
+        # ---
+        style: Literal["italic", "roman"]
+        if node.style["font-style"] in ["italic", "normal"]: style = node.style["font-style"] # type: ignore
+        else: style = "roman"
+        if node.style["font-style"] == "normal": style = "roman"
+        # ---
         color = node.style["color"]
-        weight = node.style["font-weight"]
-        style = node.style["font-style"]
         family  = node.style["font-family"]
-        if style == "normal": style = "roman"
         try:
             size = int(float(node.style["font-size"][:-2]) * .75)
         except:
@@ -263,7 +270,7 @@ class BlockLayout:
                 node.style["white-space"] = whsp
                 return
         # ---
-        font = get_font(family, size, weight, style) # type: ignore
+        font = get_font(family, size, weight, style)
         w  = font.measure(word)
         # Auto line breaks
         if self.cursor_x + w > self.width:
