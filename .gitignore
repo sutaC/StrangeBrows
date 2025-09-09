@@ -1,2 +1,3 @@
-cache.sqlite
 .vscode
+__pycache__
+cache.sqlite
