@@ -1,3 +1,4 @@
+from abc import ABC, abstractmethod
 from .HTMLParser import Element, Text
 
 INHERITED_PROPERTIES = {
@@ -12,12 +13,20 @@ INHERITED_PROPERTIES = {
     "white-space": "normal"
 }
 
-CSS_rule = tuple['TagSelector | DescendantSelector', dict[str, str]]
+CSS_rule = tuple['Selector', dict[str, str]]
 
-class TagSelector:
+class Selector(ABC):
+    def __init__(self) -> None:
+        self.priority: int
+
+    @abstractmethod
+    def matches(self, node: Element | Text) -> bool:
+        pass
+
+class TagSelector(Selector):
     def __init__(self, tag: str) -> None:
         self.tag: str = tag
-        self.priority = 1
+        self.priority = 2
 
     def __repr__(self) -> str:
         return "*|{}|".format(self.tag)
@@ -25,14 +34,28 @@ class TagSelector:
     def matches(self, node: Element | Text) -> bool:
         return isinstance(node, Element) and self.tag == node.tag
 
-class DescendantSelector:
-    def __init__(self, ancestor: 'TagSelector | DescendantSelector', descendant: TagSelector) -> None:
-        self.ancestor: 'TagSelector | DescendantSelector' = ancestor
-        self.descendant: TagSelector = descendant
+class ClassSelector(Selector):
+    def __init__(self, cls: str) -> None:
+        self.cls: str = cls.removeprefix(".")
+        self.priority = 1
+
+    def __repr__(self) -> str:
+        return "*|.{}|".format(self.cls)
+    
+    def matches(self, node: Element | Text) -> bool:
+        return isinstance(node, Element) and self.cls in node.attributes.get("class", "").split()
+
+class DescendantSelector(Selector):
+    def __init__(self, ancestor: Selector, descendant: Selector) -> None:
+        super().__init__()
+        self.ancestor: Selector = ancestor
+        self.descendant: Selector = descendant
         self.priority = ancestor.priority + descendant.priority
 
     def __repr__(self) -> str:
-        return "*|{} {}|".format(self.ancestor.__repr__()[2:-1], self.descendant.__repr__()[2:-1])
+        anc = self.ancestor.__repr__()[2:-1]
+        des = self.descendant.__repr__()[2:-1]
+        return "*|{} {}|".format(anc, des)
 
     def matches(self, node: Element | Text):
         if not self.descendant.matches(node): return False
@@ -100,12 +123,13 @@ class CSSParser:
                     break
         return pairs
     
-    def selector(self) -> TagSelector | DescendantSelector:
-        out = TagSelector(self.word().casefold())
+    def selector(self) -> Selector:
+        name = self.word().casefold()
+        out = ClassSelector(name) if name.startswith(".") else TagSelector(name)
         self.whitespace()
         while self.i < len(self.s) and self.s[self.i] != "{":
-            tag = self.word()
-            descendant = TagSelector(tag.casefold())
+            name = self.word()
+            descendant = ClassSelector(name) if name.startswith(".") else TagSelector(name)
             out = DescendantSelector(out, descendant)
             self.whitespace()
         return out

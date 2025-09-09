@@ -95,6 +95,7 @@ class URL:
 
     def resolve(self, url: str) -> 'URL':
         if "://" in  url: return URL(url)
+        if url.startswith("./"): url = url.removeprefix("./")
         if not url.startswith("/", 1):
             dir, _ = self.path.rsplit("/", 1)
             while url.startswith("../"):

@@ -1,4 +1,5 @@
 import os
+import tkinter
 import tkinter.font
 from typing import Any, Literal, TypedDict
 from .HTMLParser import Element, Text, HEAD_TAGS
@@ -236,7 +237,7 @@ class BlockLayout:
                     if idx < len(words) - 1: self.flush()
                 return
             # ---
-            for word in node.text.split():                
+            for word in node.text.split():
                 self.word(node, word)
         else:
             # <br> newline
@@ -256,7 +257,10 @@ class BlockLayout:
         style = node.style["font-style"]
         family  = node.style["font-family"]
         if style == "normal": style = "roman"
-        size = int(float(node.style["font-size"][:-2]) * .75)
+        try:
+            size = int(float(node.style["font-size"][:-2]) * .75)
+        except:
+            size = 12
         options: dict[str, Any] = {
             "vertical-align": node.style["vertical-align"],
             "color": color
@@ -351,6 +355,8 @@ class DrawText:
         if self.image:
             canvas.create_image(self.left, self.top, image=self.image, anchor="nw")
             return
+        # Checks is color valid
+        if not validate_color(self.color, canvas): self.color = "black"
         # Prints text
         canvas.create_text(
             self.left, self.top - scroll,
@@ -369,6 +375,9 @@ class DrawRect:
         self.color: str = color
 
     def execute(self, scroll: int, canvas: tkinter.Canvas) -> None:
+        # Checks if color is valid
+        if not validate_color(self.color, canvas): self.color = "white"
+        # Draws rect
         canvas.create_rectangle(
             self.left, self.top - scroll,
             self.right, self.bottom - scroll,
@@ -397,3 +406,10 @@ def split_small_caps(text: str) -> list[str]:
             buffer = c                
     if buffer: out.append(buffer)
     return out
+
+def validate_color(color: str, widget: tkinter.Widget) -> bool:
+    try:
+        widget.winfo_rgb(color)
+        return True
+    except tkinter.TclError:
+        return False

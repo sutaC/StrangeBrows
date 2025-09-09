@@ -60,6 +60,7 @@ class HTMLParser:
         self.body: str = body
         self.unfinished: list[Element] = []
         self.open_formatting_tags: list[str] = []
+        self.in_pre = False
 
     def parse(self) -> Element:
         text = ""
@@ -101,7 +102,7 @@ class HTMLParser:
         return self.finish()
 
     def add_text(self, text: str) -> None:
-        if text.isspace(): return
+        if not self.in_pre and text.isspace(): return
         self.implicit_tags(None)
         parent = self.unfinished[-1]
         node = Text(text, parent)
@@ -110,6 +111,8 @@ class HTMLParser:
     def add_tag(self, tag: str) -> None:
         tag, attributes = self.get_attributes(tag)
         if tag.startswith("!"): return
+        elif tag == "pre": self.in_pre = True
+        elif tag == "/pre": self.in_pre = False
         self.implicit_tags(tag)
         parent: Element | None
         if tag.startswith("/"):
