@@ -24,7 +24,6 @@ REDIRECT_LIMIT = 5
 HSTEP, VSTEP = 13, 18
 SCROLL_STEP = 100
 SCROLLBAR_OFFSET = 2
-OPT_DIRECTION: Literal["ltr", "rtl"] = "ltr"
 FONTS: dict[
     tuple[str, int, Literal['normal', 'bold'], Literal['roman', 'italic']], 
     tuple[tkinter.font.Font, tkinter.Label]
@@ -63,7 +62,11 @@ INHERITED_PROPERTIES = {
     "font-style": "normal",
     "font-weight": "normal",
     "color": "black",
-    "font-family": "Arial"
+    "font-family": "Arial",
+    "text-align": "left",
+    "vertical-align": "baseline",
+    "font-variant": "normal",
+    "white-space": "normal"
 }
 
 class Cache:
@@ -326,7 +329,14 @@ class BlockLayout:
         else:
             self.y = self.parent.y
         self.x = self.parent.x
-        self.width = self.parent.width
+        # Block width
+        if not isinstance(self.node, list) and \
+        self.node.style.get("width", "auto") != "auto" and \
+        self.node.style["width"].endswith("px"):
+            self.width = int(self.node.style["width"][:-2])
+            self.width = min(self.width, self.parent.width)
+        else:
+            self.width = self.parent.width
         # Element specific modifications
         if isinstance(self.node, Element):
             match self.node.tag:
@@ -376,20 +386,29 @@ class BlockLayout:
             # ---
             for child in self.children:
                 child.layout()
-            self.height = sum([child.height for child in self.children])
+            # Block height
+            if not isinstance(self.node, list) and \
+            self.node.style.get("height", "auto") != "auto" and \
+            self.node.style["height"].endswith("px"):
+                self.height =  int(self.node.style["height"][:-2])
+            else:
+                self.height = sum([child.height for child in self.children])
+            # ---
         else:
             self.cursor_x = 0
             self.cursor_y = 0
-            self.centered = False
-            self.superscript = False
-            self.abbr = False
-            self.pre = False
-            # ---
             self.line: list[line_display] = []
             for n in self.node if isinstance(self.node, list) else [self.node]:
+                self.text_align = n.style["text-align"] 
                 self.recurse(n)
             self.flush()
-            self.height = self.cursor_y
+            # Block height
+            if not isinstance(self.node, list) and \
+            self.node.style.get("height", "auto") != "auto" and \
+            self.node.style["height"].endswith("px"):
+                self.height =  int(self.node.style["height"][:-2])
+            else:
+                self.height = self.cursor_y
         
     def layout_mode(self) -> Literal["inline", "block"]:
         if isinstance(self.node, list):
@@ -447,26 +466,26 @@ class BlockLayout:
     def recurse(self, node: Element | Text) -> None:
         if isinstance(node, Text):
             # <pre> support
-            if self.pre:
+            if node.style["white-space"] == "pre":
                 words = node.text.split("\n")
                 for idx, word in enumerate(words):
                     self.word(node, word)
                     if idx < len(words) - 1: self.flush()
                 return
             # ---
-            for word in node.text.split():
-                # <abbr> support
-                if self.abbr:
-                    for word in split_cases(word):
-                        self.word(node, word)
-                    return
-                # ---
+            for word in node.text.split():                
                 self.word(node, word)
         else:
-            self.open_tag(node.tag, node.attributes)
+            # <br> newline
+            if node.tag == "br":
+                self.flush()
+            # ---
             for child in node.children:
                 self.recurse(child)
-            self.close_tag(node.tag)
+            # <p> bottom padding
+            if node.tag == "p":
+                self.flush()
+                self.cursor_y += VSTEP
 
     def word(self, node: Text, word: str) -> None:
         color = node.style["color"]
@@ -476,16 +495,22 @@ class BlockLayout:
         if style == "normal": style = "roman"
         size = int(float(node.style["font-size"][:-2]) * .75)
         options: dict[str, Any] = {
-            "superscript": self.superscript,
+            "vertical-align": node.style["vertical-align"],
             "color": color
         }
-        # <abbr> support
-        if self.abbr and word.islower():
-            word = word.upper()
-            weight = "bold"
-            if not self.superscript: size = int(size * 0.75)
-        # <sup> support
-        if self.superscript: size //= 2
+        # Font variant
+        if node.style["font-variant"] == "small-caps": 
+            if word.islower():
+                word = word.upper()
+                size = int(size * .75)
+            elif word != word.upper():
+                whsp = node.style["white-space"] 
+                node.style["white-space"] = "pre" # Prevents spaces after separated sequences
+                for seq in split_small_caps(word):
+                    self.word(node, seq)
+                node.style["white-space"] = whsp
+                return
+        # ---
         font = get_font(family, size, weight, style) # type: ignore
         w  = font.measure(word)
         # Auto line breaks
@@ -499,7 +524,7 @@ class BlockLayout:
                     if remainder: remainder = "\N{soft hyphen}" + remainder # To save \N position
                     remainder = r + remainder
                     seq_w = font.measure(seq + "-")
-                    if self.cursor_x + seq_w > WIDTH - HSTEP: continue
+                    if self.cursor_x + seq_w > self.width: continue
                     seq += "-" # Adds hyphen at separation point
                     self.line.append((self.cursor_x, seq, font, options))
                     self.flush()
@@ -510,68 +535,37 @@ class BlockLayout:
                 self.flush()
         self.line.append((self.cursor_x, word, font, options))
         self.cursor_x += w
-        if not self.pre: self.cursor_x += font.measure(" ")
+        if node.style["white-space"] != "pre": self.cursor_x += font.measure(" ")
 
     def flush(self) -> None:
         if not self.line: return
-        # <h1> - Centerd line support
-        if self.centered: 
-            x, word, font, opt = self.line[-1]
+        # Text alignment
+        text_padding = 0
+        if self.text_align == "right":
+            x, word, font, options = self.line[-1]
             line_end = x + font.measure(word)
-            padding = (WIDTH - line_end - HSTEP) // 2
-            for idx, text in enumerate(self.line):
-                self.line[idx] = (text[0] + padding, text[1], text[2], text[3])
-        # right-to-left text direction support
-        elif OPT_DIRECTION == "rtl": 
-            x, word, font, opt = self.line[-1]
+            text_padding = self.width - line_end
+        elif self.text_align == "center":
+            x, word, font, options = self.line[-1]
             line_end = x + font.measure(word)
-            padding = WIDTH - line_end - HSTEP
-            for idx, text in enumerate(self.line):
-                self.line[idx] = (text[0] + padding, text[1], text[2], text[3])
+            text_padding = (self.width - line_end) // 2
+        for idx, text in enumerate(self.line):
+            self.line[idx] = (text[0] + text_padding, text[1], text[2], text[3])
         # ---
-        metrics = [font.metrics() for x, word, font, opt in self.line]
+        metrics = [font.metrics() for x, word, font, options in self.line]
         max_ascent = max(metric["ascent"] for metric in metrics)
         baseline = int(self.cursor_y + 1.25 * max_ascent)
-        for rel_x, word, font, opt in self.line:
-            color: str = opt["color"]
+        for rel_x, word, font, options in self.line:
+            color: str = options["color"]
             x = self.x + rel_x
             y = self.y + baseline - font.metrics("ascent")
-            if opt["superscript"]: y = self.cursor_y + max_ascent // 3 # <sup> support
+            if options["vertical-align"] == "top": y -= font.metrics("ascent") # vertical-align: top
             if "\N{soft hyphen}" in word: word = word.replace("\N{soft hyphen}", "") # Removes visible soft hyphen 
             self.display_list.append((x, y, word, font, color))
         max_descent = max(metric["descent"] for metric in metrics)
         self.cursor_y = int(baseline + 1.25 * max_descent)
         self.cursor_x = 0
         self.line = []
-
-    def open_tag(self, tag: str, attributes: dict[str, str]) -> None:
-        match tag:
-            case "br": 
-                if self.pre: return
-                self.flush()
-            case 'h1': 
-                if self.pre: return
-                if "title" in attributes.get("class", "").split(): 
-                    self.centered = True
-            case "sup": self.superscript = True
-            case "abbr": self.abbr = True
-            case "pre": self.pre = True
-
-    def close_tag(self, tag: str) -> None:
-        match tag:
-            case "p": 
-                if self.pre: return
-                self.flush()
-                self.cursor_y += VSTEP
-            case "h1":
-                if self.pre: return
-                self.flush()
-                self.centered = False
-            case "sup": self.superscript = False
-            case "abbr": self.abbr = False
-            case "pre": 
-                self.pre = False
-                self.flush()
 
 class DocumentLayout:
     def __init__(self, node: Element) -> None:
@@ -1072,7 +1066,7 @@ def get_font(family: str, size: int, weight: Literal['normal', 'bold'], style: L
         FONTS[key] = (font, label)
     return FONTS[key][0]
 
-def split_cases(text: str) -> list[str]:
+def split_small_caps(text: str) -> list[str]:
     out: list[str] = []
     buffer = ""
     for c in text:
@@ -1136,8 +1130,6 @@ def paint_tree(layout_object: DocumentLayout | BlockLayout, display_list: list[D
 if __name__ == "__main__":
     parser = ArgumentParser(description="Simple web browser")
     parser.add_argument("url", type=str, help="Url to visit", nargs="?", default="")
-    parser.add_argument("--direction", choices=["ltr", "rtl"], help="Text direction on screen", default="ltr")
     args = parser.parse_args()
-    OPT_DIRECTION = args.direction
     Browser().load(URL(args.url))
     tkinter.mainloop()

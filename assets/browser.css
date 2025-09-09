@@ -1,6 +1,7 @@
 pre {
     background-color: gray;
     font-family: Courier;
+    white-space: pre;
 }
 code {
     font-family: Courier;
@@ -19,4 +20,15 @@ small {
 }
 big {
     font-size: 110%;
+}
+abbr {
+    font-weight: bold;
+    font-variant: small-caps;
+}
+sup {
+    font-size: 50%;
+    vertical-align: top;
+}
+h1 {
+    text-align: center;
 }
