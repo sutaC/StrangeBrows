@@ -85,6 +85,22 @@ class DescendantSelector(Selector):
             node = node.parent
         return i < 0
 
+class SequenceSelector(Selector):
+    def __init__(self, selectors: list[Selector]) -> None:
+        self.selectors: list[Selector] = []
+        for s in selectors:
+            if isinstance(s, SequenceSelector): self.selectors.extend(s.selectors)
+            else: self.selectors.append(s)
+        self.priority: int = sum(s.priority for s in self.selectors)
+
+    def __repr__(self) -> str:
+        return "*|"+ "".join(s.__repr__()[2:-1] for s in self.selectors) + "|"
+    
+    def matches(self, node: Element | Text) -> bool:
+        for s in self.selectors:
+            if not s.matches(node): return False
+        return True
+
 class CSSParser:
     def __init__(self, s: str) -> None:
         self.s: str = s
@@ -235,9 +251,14 @@ def cascade_priority(rule: CSS_rule) -> int:
     return selector.priority
 
 def get_selector(name: str) -> Selector:
+    idx = max(name.find("#", 1), name.find(".", 1))     
+    if idx > -1:
+        return SequenceSelector([
+            get_selector(name[:idx]), 
+            get_selector(name[idx:])
+        ])
     if name.startswith("#"):
         return IdSelector(name)
-    elif name.startswith("."):
+    if name.startswith("."):
         return ClassSelector(name)
-    else:
-        return TagSelector(name)
+    return TagSelector(name)
