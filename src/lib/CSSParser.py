@@ -35,7 +35,7 @@ class Selector(ABC):
 class TagSelector(Selector):
     def __init__(self, tag: str) -> None:
         self.tag: str = tag
-        self.priority = 3
+        self.priority = 1
 
     def __repr__(self) -> str:
         return "*|{}|".format(self.tag)
@@ -57,7 +57,7 @@ class ClassSelector(Selector):
 class IdSelector(Selector):
     def __init__(self, cls: str) -> None:
         self.id: str = cls.removeprefix("#")
-        self.priority = 1
+        self.priority = 3
 
     def __repr__(self) -> str:
         return "*|#{}|".format(self.id)
@@ -67,22 +67,23 @@ class IdSelector(Selector):
 
 class DescendantSelector(Selector):
     def __init__(self, ancestor: Selector, descendant: Selector) -> None:
-        super().__init__()
-        self.ancestor: Selector = ancestor
-        self.descendant: Selector = descendant
-        self.priority = ancestor.priority + descendant.priority
+        self.selectors: list[Selector] = []
+        if isinstance(ancestor, DescendantSelector): self.selectors.extend(ancestor.selectors)
+        else: self.selectors.append(ancestor)
+        if isinstance(descendant, DescendantSelector): self.selectors.extend(descendant.selectors)
+        else: self.selectors.append(descendant)
+        self.priority: int = sum(s.priority for s in self.selectors)
 
     def __repr__(self) -> str:
-        anc = self.ancestor.__repr__()[2:-1]
-        des = self.descendant.__repr__()[2:-1]
-        return "*|{} {}|".format(anc, des)
+        return "*|"+ " ".join(s.__repr__()[2:-1] for s in self.selectors) + "|"
 
     def matches(self, node: Element | Text):
-        if not self.descendant.matches(node): return False
-        while node.parent:
-            if self.ancestor.matches(node.parent): return True
+        if not self.selectors[-1].matches(node): return False
+        i = len(self.selectors) - 2
+        while node.parent and i >= 0:
+            if self.selectors[i].matches(node.parent): i -= 1
             node = node.parent
-        return False
+        return i < 0
 
 class CSSParser:
     def __init__(self, s: str) -> None:
