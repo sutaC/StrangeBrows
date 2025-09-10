@@ -3,7 +3,7 @@ import sys
 import os
 from .URL import URL
 from .CSSParser import CSSParser, style, cascade_priority
-from .HTMLParser import HTMLParser, HTMLSourceParser, Element
+from .HTMLParser import HTMLParser, HTMLSourceParser, Element, Text
 from .DocumentLayout import DrawText, DrawRect, DocumentLayout, BlockLayout, Dimensions
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
@@ -114,19 +114,29 @@ class Browser:
         else:
             self.nodes = HTMLParser(body).parse()
         rules = DEFAULT_STYLE_SHEET.copy()
-        links = [node.attributes["href"]
-            for node in tree_to_list(self.nodes, [])
-            if isinstance(node, Element)
-            and node.tag == "link"
-            and node.attributes.get("rel") == "stylesheet"
-            and "href" in node.attributes]  
-        for link in links:
-            style_url = url.resolve(link)
-            try:
-                body = style_url.request()
-            except:
-                continue
+        sheets: list[Element] = []
+        # Gathering style sheets
+        for node in tree_to_list(self.nodes, []):
+            if (isinstance(node, Element) \
+            and node.tag == "link" \
+            and node.attributes.get("rel") == "stylesheet" \
+            and "href" in node.attributes) \
+            or (isinstance(node, Element) \
+            and node.tag == "style"):
+                sheets.append(node)
+        # Parsing style sheets
+        for node in sheets:
+            body = ""
+            if node.tag == "link":
+                style_url = url.resolve(node.attributes["href"])
+                try: body = style_url.request()
+                except: continue
+            elif node.tag == "style":
+                for child in node.children:
+                    if isinstance(child, Text):
+                        body += child.text
             rules.extend(CSSParser(body).parse())
+        # Styling
         style(self.nodes, sorted(rules, key=cascade_priority))
         self.document = DocumentLayout(self.nodes, self.dimensions)
         self.document.layout()
