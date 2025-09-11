@@ -32,6 +32,10 @@ class Selector(ABC):
     def matches(self, node: Element | Text) -> bool:
         pass
 
+    @abstractmethod
+    def __deepcopy__(self) -> 'Selector':
+        pass
+
 class TagSelector(Selector):
     def __init__(self, tag: str) -> None:
         self.tag: str = tag
@@ -39,6 +43,9 @@ class TagSelector(Selector):
 
     def __repr__(self) -> str:
         return "*|{}|".format(self.tag)
+    
+    def __deepcopy__(self) -> 'TagSelector':
+        return TagSelector(self.tag)
 
     def matches(self, node: Element | Text) -> bool:
         return isinstance(node, Element) and self.tag == node.tag
@@ -51,6 +58,9 @@ class ClassSelector(Selector):
     def __repr__(self) -> str:
         return "*|.{}|".format(self.cls)
     
+    def __deepcopy__(self) -> 'ClassSelector':
+        return ClassSelector(self.cls)
+
     def matches(self, node: Element | Text) -> bool:
         return isinstance(node, Element) and self.cls in node.attributes.get("class", "").split()
 
@@ -62,20 +72,25 @@ class IdSelector(Selector):
     def __repr__(self) -> str:
         return "*|#{}|".format(self.id)
     
+    def __deepcopy__(self) -> 'IdSelector':
+        return IdSelector(self.id)
+
     def matches(self, node: Element | Text) -> bool:
         return isinstance(node, Element) and self.id == node.attributes.get("id")
 
 class DescendantSelector(Selector):
-    def __init__(self, ancestor: Selector, descendant: Selector) -> None:
+    def __init__(self, selectors: list[Selector]) -> None:
         self.selectors: list[Selector] = []
-        if isinstance(ancestor, DescendantSelector): self.selectors.extend(ancestor.selectors)
-        else: self.selectors.append(ancestor)
-        if isinstance(descendant, DescendantSelector): self.selectors.extend(descendant.selectors)
-        else: self.selectors.append(descendant)
+        for selector in selectors:
+            if isinstance(selector, DescendantSelector): self.selectors.extend(selector.selectors)
+            else: self.selectors.append(selector)
         self.priority: int = sum(s.priority for s in self.selectors)
-
+        
     def __repr__(self) -> str:
         return "*|"+ " ".join(s.__repr__()[2:-1] for s in self.selectors) + "|"
+
+    def __deepcopy__(self) -> 'DescendantSelector':
+        return DescendantSelector(self.selectors.copy()) 
 
     def matches(self, node: Element | Text):
         if not self.selectors[-1].matches(node): return False
@@ -96,6 +111,9 @@ class SequenceSelector(Selector):
     def __repr__(self) -> str:
         return "*|"+ "".join(s.__repr__()[2:-1] for s in self.selectors) + "|"
     
+    def __deepcopy__(self) -> 'SequenceSelector':
+        return SequenceSelector(self.selectors.copy())
+
     def matches(self, node: Element | Text) -> bool:
         for s in self.selectors:
             if not s.matches(node): return False
@@ -178,10 +196,10 @@ class CSSParser:
         while self.i < len(self.s) and self.s[self.i] != "{":
             name = self.word()
             descendant = get_selector(name)
-            out = DescendantSelector(out, descendant)
+            out = DescendantSelector([out, descendant])
             self.whitespace()
         return out
-    
+
     def parse(self) -> list[CSS_rule]:
         rules: list[CSS_rule] = []
         while self.i < len(self.s):
@@ -192,7 +210,18 @@ class CSSParser:
                 self.whitespace()
                 body = self.body()
                 self.literal("}")
-                rules.append((selector, body))  
+                self.whitespace()
+                # !important handling
+                important_body: dict[str, str] = {}
+                for key in body.copy(): # .copy() to prevent direct dict changing in loop 
+                    if body[key].endswith("!important"):
+                        value = body.pop(key).removesuffix("!important").rstrip()
+                        important_body[key] = value
+                if important_body:
+                    important_selector = selector.__deepcopy__()
+                    important_selector.priority += 10_000
+                    rules.append((important_selector, important_body))
+                if body: rules.append((selector, body))  
             except Exception:
                 why = self.ignore_until(["}"])
                 if why == "}":
