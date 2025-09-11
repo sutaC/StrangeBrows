@@ -119,6 +119,35 @@ class SequenceSelector(Selector):
             if not s.matches(node): return False
         return True
 
+class HasSelector(Selector):
+    def __init__(self, parent: Selector, children: list[Selector]) -> None:
+        self.parent: Selector = parent
+        self.children: list[Selector] = children
+        assert not any(isinstance(child, HasSelector) for child in children)
+        self.priority: int = parent.priority + sum(child.priority for child in self.children)
+        
+    def __repr__(self) -> str:
+        return "*|" + self.parent.__repr__()[2:-1] + \
+        ":has(" + " ".join(child.__repr__()[2:-1] for child in self.children) + ")|"
+
+    def __deepcopy__(self) -> 'HasSelector':
+        return HasSelector(self.parent, self.children.copy())
+    
+    def child_matches(self, node: Element | Text, i=0) -> bool:
+        if self.children[i].matches(node):
+            if i >= len(self.children) - 1: return True
+            if not node.children: return False
+            i += 1
+        for child in node.children:
+            if self.child_matches(child, i): return True
+        return False
+
+    def matches(self, node: Element | Text) -> bool:
+        if not self.parent.matches(node): return False
+        for child in node.children:
+            if self.child_matches(child): return True
+        return False
+
 class CSSParser:
     def __init__(self, s: str) -> None:
         self.s: str = s
@@ -131,7 +160,7 @@ class CSSParser:
     def word(self) -> str:
         start = self.i
         while self.i < len(self.s):
-            if self.s[self.i].isalnum() or self.s[self.i] in "#-.%":
+            if self.s[self.i].isalnum() or self.s[self.i] in "#-.%()":
                 self.i += 1
             else:
                 break
@@ -189,12 +218,26 @@ class CSSParser:
                     break
         return pairs
     
+    def selector_name(self) -> str:
+        name, _ = self.read_until([" ", "{"])
+        name = name.casefold()
+        # HasSelector support
+        if ":has(" in name and not ")" in name:
+            try:
+                seg, why = self.read_until([")", "{"])
+                if why == ")": 
+                    name += seg.casefold()
+                    seg, _ = self.read_until([" ", "{"])
+                    name += seg.casefold()
+            except: name = name[:name.find(":has(")]
+        return name
+
     def selector(self) -> Selector:
-        name = self.word().casefold()
+        name = self.selector_name()
         out = get_selector(name)
         self.whitespace()
         while self.i < len(self.s) and self.s[self.i] != "{":
-            name = self.word()
+            name = self.selector_name()
             descendant = get_selector(name)
             out = DescendantSelector([out, descendant])
             self.whitespace()
@@ -280,14 +323,32 @@ def cascade_priority(rule: CSS_rule) -> int:
     return selector.priority
 
 def get_selector(name: str) -> Selector:
+    # hasSelector support
+    if ":has(" in name:
+        if not ")" in name: raise Exception("Parsing error")
+        parent, children = name.split(":has(", 1)
+        if children.endswith(")"):
+            children = children.removesuffix(")")
+            rest = ""
+        else: children, rest = children.split(")", 1)
+        parent_selector = get_selector(parent)
+        children_selectors = [get_selector(cname) for cname in children.split()]        
+        if children_selectors: combined_selector = HasSelector(parent_selector, children_selectors)
+        else: combined_selector = parent_selector
+        if rest: combined_selector = SequenceSelector([combined_selector, get_selector(name)])
+        return combined_selector
+    # SequenceSelector support
     idx = max(name.find("#", 1), name.find(".", 1))     
     if idx > -1:
         return SequenceSelector([
             get_selector(name[:idx]), 
             get_selector(name[idx:])
         ])
+    # IdSelector support
     if name.startswith("#"):
         return IdSelector(name)
+    # ClassSelector support
     if name.startswith("."):
         return ClassSelector(name)
+    # TagSelector support
     return TagSelector(name)
