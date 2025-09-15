@@ -2,6 +2,8 @@ import os
 import tkinter
 import tkinter.font
 from typing import Any, Literal, TypedDict
+
+from .Draw import Draw, DrawText, DrawRect, Rect
 from .HTMLParser import Element, Text, HEAD_TAGS
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
@@ -44,7 +46,7 @@ class DocumentLayout:
         child.layout()
         self.height = child.height  
 
-    def paint(self) -> list['DrawText | DrawRect']:
+    def paint(self) -> list:
         return []
 
 class BlockLayout:
@@ -62,8 +64,7 @@ class BlockLayout:
             if len(self.node) == 1: [self.node] = self.node
         self.parent: 'BlockLayout | DocumentLayout' = parent
         self.previous: 'BlockLayout | None' = previous
-        self.children: 'list[BlockLayout]' = []
-        self.display_list: list[display] = []
+        self.children: 'list[BlockLayout | LineLayout]' = []
         # ---
         self.x: int
         self.y: int
@@ -123,6 +124,7 @@ class BlockLayout:
                     previous.node.tag == "h6":
                         heading = self.children.pop()
                         assert isinstance(heading.node, Element)
+                        assert isinstance(heading, BlockLayout)
                         next = BlockLayout([heading.node, child], self, heading.previous, self.dimensions)
                         self.children.append(next)
                         previous = next
@@ -139,35 +141,23 @@ class BlockLayout:
                 self.children.append(next)
                 previous = next
                 block = []
-            # ---
-            for child in self.children:
-                child.layout()
-            # Block height
-            if not isinstance(self.node, list) and \
-            self.node.style.get("height", "auto") != "auto" and \
-            self.node.style["height"].endswith("px"):
-                self.height =  int(self.node.style["height"][:-2])
-            else:
-                self.height = sum([child.height for child in self.children])
-            # <p> bottom padding
-            if isinstance(self.node, Element) and self.node.tag == "p":
-                self.height += self.dimensions["vstep"]
-            # ---
         else:
-            self.cursor_x = 0
-            self.cursor_y = 0
-            self.line: list[line_display] = []
+            self.new_line()
             for n in self.node if isinstance(self.node, list) else [self.node]:
                 self.text_align = n.style["text-align"] 
                 self.recurse(n)
-            self.flush()
-            # Block height
-            if not isinstance(self.node, list) and \
-            self.node.style.get("height", "auto") != "auto" and \
-            self.node.style["height"].endswith("px"):
-                self.height =  int(self.node.style["height"][:-2])
-            else:
-                self.height = self.cursor_y
+        for child in self.children:
+            child.layout()
+        # Block height
+        if not isinstance(self.node, list) and \
+        self.node.style.get("height", "auto") != "auto" and \
+        self.node.style["height"].endswith("px"):
+            self.height =  int(self.node.style["height"][:-2])
+        else:
+            self.height = sum([child.height for child in self.children])
+        # <p> bottom padding
+        if isinstance(self.node, Element) and self.node.tag == "p":
+            self.height += self.dimensions["vstep"]
         
     def layout_mode(self) -> Literal["inline", "block"]:
         if isinstance(self.node, list):
@@ -177,8 +167,8 @@ class BlockLayout:
         else:
             return "inline"
 
-    def paint(self) -> list['DrawText | DrawRect']:
-        cmds: list[DrawText | DrawRect] = []
+    def paint(self) -> list[Draw]:
+        cmds: list[Draw] = []
         # Element specific defaults
         if isinstance(self.node, Element):
             match self.node.tag:
@@ -188,19 +178,19 @@ class BlockLayout:
                         font = get_font("", 12, "normal", "roman")
                         y1 = self.y - self.dimensions["vstep"]
                         x2, y2 = self.x + font.measure(text), y1 + font.metrics("linespace")
-                        rect = DrawRect(self.x, y1, x2, y2, "grey")
+                        rect = DrawRect(Rect(self.x, y1, x2, y2), "grey")
                         cmds.append(rect)
                         cmds.append(DrawText(self.x, y1, text, font, "black"))
                     if "links" in self.node.attributes.get("class", "").split():
                         x2, y2 = self.x + self.width, self.y + self.height
-                        rect = DrawRect(self.x, self.y, x2, y2, "light grey")
+                        rect = DrawRect(Rect(self.x, self.y, x2, y2), "light grey")
                         cmds.append(rect)
                 case "li":
                     x1 = self.x - self.dimensions["hstep"]
                     y1 = self.y + self.height // 2
                     size = 4
                     x2, y2 = x1 + size, y1 + size
-                    rect = DrawRect(x1, y1, x2, y2, "black") 
+                    rect = DrawRect(Rect(x1, y1, x2, y2), "black") 
                     cmds.append(rect)
         # Author styles
         for node in self.node if isinstance(self.node, list) else [self.node]:
@@ -208,13 +198,12 @@ class BlockLayout:
             bgcolor = node.style.get("background-color", "transparent")
             if bgcolor != "transparent":
                 x2, y2 = self.x + self.width, self.y + self.height
-                rect = DrawRect(self.x, self.y, x2, y2, bgcolor)
+                rect = DrawRect(self.self_rect(), bgcolor)
                 cmds.append(rect)
-        # Text
-        if self.layout_mode() == "inline":
-            for x, y, word, font, color in self.display_list:
-                cmds.append(DrawText(x, y, word, font, color))
         return cmds
+    
+    def self_rect(self) -> Rect:
+        return Rect(self.x, self.y, self.x + self.width, self.y + self.height)
 
     def recurse(self, node: Element | Text) -> None:
         if isinstance(node, Text):
@@ -223,7 +212,7 @@ class BlockLayout:
                 words = node.text.split("\n")
                 for idx, word in enumerate(words):
                     self.word(node, word)
-                    if idx < len(words) - 1: self.flush()
+                    if idx < len(words) - 1: self.new_line()
                 return
             # ---
             for word in node.text.split():
@@ -231,7 +220,7 @@ class BlockLayout:
         else:
             # <br> newline
             if node.tag == "br":
-                self.flush()
+                self.new_line()
             # ---
             for child in node.children:
                 self.recurse(child)
@@ -247,20 +236,14 @@ class BlockLayout:
         else: style = "roman"
         if node.style["font-style"] == "normal": style = "roman"
         # ---
-        color = node.style["color"]
         family  = node.style["font-family"]
         try:
             size = int(float(node.style["font-size"][:-2]) * .75)
         except:
             size = 12
-        options: dict[str, Any] = {
-            "vertical-align": node.style["vertical-align"],
-            "color": color
-        }
         # Font variant
         if node.style["font-variant"] == "small-caps": 
             if word.islower():
-                word = word.upper()
                 size = int(size * .75)
             elif word != word.upper():
                 whsp = node.style["white-space"] 
@@ -285,97 +268,132 @@ class BlockLayout:
                     seq_w = font.measure(seq + "-")
                     if self.cursor_x + seq_w > self.width: continue
                     seq += "-" # Adds hyphen at separation point
-                    self.line.append((self.cursor_x, seq, font, options))
-                    self.flush()
+                    line: LineLayout = self.children[-1] # type: ignore
+                    previous_word = line.children[-1] if line.children else None
+                    new_text = TextLayout(node, seq, line, previous_word)
+                    line.children.append(new_text)
+                    self.new_line()
                     word = seq = remainder
                     remainder = ""
                     w = font.measure(word)
             else:
-                self.flush()
-        self.line.append((self.cursor_x, word, font, options))
+                self.new_line()
+        line: LineLayout = self.children[-1] # type: ignore
+        previous_word = line.children[-1] if line.children else None
+        text = TextLayout(node, word, line, previous_word)
+        line.children.append(text)
         self.cursor_x += w
         if node.style["white-space"] != "pre": self.cursor_x += font.measure(" ")
 
-    def flush(self) -> None:
-        if not self.line: return
+    def new_line(self) -> None:
+        self.cursor_x = 0
+        last_line: LineLayout | None = self.children[-1] if self.children else None # type: ignore
+        new_line = LineLayout(self.node, self, last_line) # type: ignore
+        self.children.append(new_line)
+
+class LineLayout:
+    def __init__(self, \
+    node: Text, \
+    parent: BlockLayout, \
+    previous: 'LineLayout | None') -> None:
+        self.node: Text = node
+        self.parent: BlockLayout = parent
+        self.previous: 'LineLayout | None' = previous
+        self.children: list['TextLayout'] = []
+        # ---
+        self.x: int
+        self.y: int
+        self.width: int
+        self.height: int
+
+    def layout(self) -> None:
+        self.width = self.parent.width
+        self.x = self.parent.x
+        if self.previous:
+            self.y = self.previous.y + self.previous.height
+        else:
+            self.y = self.parent.y
+        for word in self.children:
+            word.layout()
+        if not self.children:
+            self.height = 0
+            return
         # Text alignment
         text_padding = 0
-        if self.text_align == "right":
-            x, word, font, options = self.line[-1]
-            line_end = x + font.measure(word)
+        last_child = self.children[-1]
+        if self.parent.text_align == "right":
+            line_end = last_child.x + last_child.font.measure(last_child.word)
             text_padding = self.width - line_end
-        elif self.text_align == "center":
-            x, word, font, options = self.line[-1]
-            line_end = x + font.measure(word)
+        elif self.parent.text_align == "center":
+            line_end = last_child.x + last_child.font.measure(last_child.word)
             text_padding = (self.width - line_end) // 2
-        for idx, text in enumerate(self.line):
-            self.line[idx] = (text[0] + text_padding, text[1], text[2], text[3])
+        for word in self.children:
+            word.x += text_padding
         # ---
-        metrics = [font.metrics() for x, word, font, options in self.line]
-        max_ascent = max(metric["ascent"] for metric in metrics)
-        baseline = int(self.cursor_y + 1.25 * max_ascent)
-        for rel_x, word, font, options in self.line:
-            color: str = options["color"]
-            x = self.x + rel_x
-            y = self.y + baseline - font.metrics("ascent")
-            if options["vertical-align"] == "top": y -= font.metrics("ascent") # vertical-align: top
-            if "\N{soft hyphen}" in word: word = word.replace("\N{soft hyphen}", "") # Removes visible soft hyphen 
-            self.display_list.append((x, y, word, font, color))
-        max_descent = max(metric["descent"] for metric in metrics)
-        self.cursor_y = int(baseline + 1.25 * max_descent)
-        self.cursor_x = 0
-        self.line = []
-    
-class DrawText:
-    def __init__(self, x1: int, y1: int, text: str, font: tkinter.font.Font, color: str) -> None:
-        self.top: int = y1
-        self.left: int = x1
-        self.text: str = text
-        self.font: tkinter.font.Font = font
-        self.bottom: int = y1 + font.metrics("linespace")
-        self.color: str = color
-        # Emoji handling
-        self.image: tkinter.PhotoImage | None = None
-        if len(text) == 1 and not text.isalnum() and not text.isascii():
-            code = hex(ord(self.text))[2:].upper()
-            image_path = os.path.join(BASE_DIR, 'assets', 'emojis', "{}.png".format(code))
-            if os.path.isfile(image_path):
-                self.image = tkinter.PhotoImage(file=image_path)
+        max_ascent = max([word.font.metrics("ascent") for word in self.children])
+        baseline = int(self.y + 1.25 * max_ascent)
+        for word in self.children:
+            word.y = baseline - word.font.metrics("ascent")
+            if word.node.style["vertical-align"] == "top": word.y -= word.font.metrics("ascent") # vertical-align: top
+            if "\N{soft hyphen}" in word.word: word.word = word.word.replace("\N{soft hyphen}", "") # Removes visible soft hyphen 
+        max_descent = max([word.font.metrics("descent") for word in self.children])
+        self.height = int(1.25 * (max_ascent + max_descent))
 
-    def execute(self, scroll: int, canvas: tkinter.Canvas) -> None:
-        # Prints emojis
-        if self.image:
-            canvas.create_image(self.left, self.top, image=self.image, anchor="nw")
-            return
-        # Checks is color valid
-        if not validate_color(self.color, canvas): self.color = "black"
-        # Prints text
-        canvas.create_text(
-            self.left, self.top - scroll,
-            text=self.text,
-            font=self.font,
-            anchor="nw",
-            fill=self.color
-        )
+    def paint(self) -> list:
+        return []
 
-class DrawRect:
-    def __init__(self, x1: int, y1: int, x2: int, y2: int, color: str) -> None:
-        self.top: int = y1
-        self.left: int = x1 
-        self.bottom: int = y2
-        self.right: int = x2
-        self.color: str = color
+class TextLayout:
+    def __init__(self, \
+    node: Text, \
+    word: str, \
+    parent: LineLayout, \
+    previous: 'TextLayout | None') -> None:
+        self.node: Text = node
+        self.word: str = word
+        self.parent: LineLayout = parent
+        self.previous: 'TextLayout | None' = previous
+        self.children: list['TextLayout'] = []
+        # ---
+        self.x: int
+        self.y: int
+        self.width: int
+        self.height: int
+        # ---
+        self.no_space: bool = self.node.style["white-space"] == "pre"
 
-    def execute(self, scroll: int, canvas: tkinter.Canvas) -> None:
-        # Checks if color is valid
-        if not validate_color(self.color, canvas): self.color = "white"
-        # Draws rect
-        canvas.create_rectangle(
-            self.left, self.top - scroll,
-            self.right, self.bottom - scroll,
-            width=0,
-            fill=self.color
-        )
+    def layout(self) -> None:
+        # Prop type checking
+        weight: Literal["bold", "normal"]
+        if self.node.style["font-weight"] in ["bold", "normal"]: weight = self.node.style["font-weight"] # type: ignore
+        else: weight = "normal"
+        # ---
+        style: Literal["italic", "roman"]
+        if self.node.style["font-style"] in ["italic", "normal"]: style = self.node.style["font-style"] # type: ignore
+        else: style = "roman"
+        if self.node.style["font-style"] == "normal": style = "roman"
+        # ---
+        family  = self.node.style["font-family"]
+        try:
+            size = int(float(self.node.style["font-size"][:-2]) * .75)
+        except:
+            size = 12
+        # Font variant 
+        if self.node.style["font-variant"] == "small-caps" and self.word.islower(): 
+            self.word = self.word.upper()
+            size = int(size * .75)
+        self.font = get_font(family, size, weight, style)
+        self.width = self.font.measure(self.word)
+        if self.previous:
+            space = self.previous.font.measure(" ") if not self.no_space else 0
+            self.x = self.previous.x + space + self.previous.width
+        else:
+            self.x = self.parent.x
+        self.height = self.font.metrics("linespace")
+
+    def paint(self) -> list[Draw]:
+        color = self.node.style['color']
+        return [DrawText(self.x, self.y, self.word, self.font, color)]
+
 
 def get_font(family: str, size: int, weight: Literal['normal', 'bold'], style: Literal['roman', 'italic']) -> tkinter.font.Font:
     key = (family, size, weight, style)
@@ -399,9 +417,3 @@ def split_small_caps(text: str) -> list[str]:
     if buffer: out.append(buffer)
     return out
 
-def validate_color(color: str, widget: tkinter.Widget) -> bool:
-    try:
-        widget.winfo_rgb(color)
-        return True
-    except tkinter.TclError:
-        return False

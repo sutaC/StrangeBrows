@@ -277,7 +277,7 @@ class CSSParser:
 def style(node: Element | Text, rules: list[CSS_rule]) -> None:
     node.style = {}
     for property, default_value in INHERITED_PROPERTIES.items():
-        if node.parent:
+        if node.parent and property in node.parent.style:
             node.style[property] = node.parent.style[property]
         else:
             node.style[property] = default_value

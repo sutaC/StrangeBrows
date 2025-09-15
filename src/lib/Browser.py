@@ -1,30 +1,20 @@
 import tkinter 
 import sys
-import os
 from .URL import URL
-from .CSSParser import CSSParser, style, cascade_priority
-from .HTMLParser import HTMLParser, HTMLSourceParser, Element, Text
-from .DocumentLayout import DrawText, DrawRect, DocumentLayout, BlockLayout, Dimensions
-
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
-SCROLL_STEP = 100
-SCROLLBAR_OFFSET = 2
-
-DEFAULT_STYLE_SHEET = CSSParser(
-    open(
-        os.path.join(BASE_DIR, "assets", "browser.css")
-    ).read()
-).parse()
+from .Tab import Tab
+from .Chrome import Chrome
+from .DocumentLayout import Dimensions
 
 class Browser:
     def __init__(self) -> None:
+        self.active_tab: Tab
+        self.tabs: list[Tab] = []
         self.dimensions = Dimensions(
             width=800,
             height=600,
             hstep=13,
             vstep=18,
         )
-        self.images: list[tkinter.PhotoImage] = []
         self.window = tkinter.Tk()
         self.window.title("StrangeBrows")
         self.canvas = tkinter.Canvas(
@@ -34,128 +24,81 @@ class Browser:
             bg="white"
         )
         self.canvas.pack(fill="both", expand=1)
-        self.display_list: list[DrawText | DrawRect] = []
-        self.scroll = 0
-        self.window.bind("<Up>", self.scrollup)
-        self.window.bind("<Down>", self.scrolldown)
-        self.window.bind("<Configure>", self.configure)
+        self.window.bind("<Up>", self.handle_scrollup)
+        self.window.bind("<Down>", self.handle_scrolldown)
+        self.window.bind("<Configure>", self.handle_configure)
+        self.window.bind("<Button-1>", self.handle_click)
+        self.window.bind("<Key>", self.handle_key)
+        self.window.bind("<Return>", self.handle_enter)
         # System dependent
         match sys.platform:
             case 'linux':
-                self.window.bind("<Button-4>", self.scrollup)
-                self.window.bind("<Button-5>", self.scrolldown)
+                self.window.bind("<Button-4>", self.handle_scrollup)
+                self.window.bind("<Button-5>", self.handle_scrolldown)
             case 'darwin':
-                self.window.bind("<MouseWheel>", self.scrollmousewheel_darwin)
+                self.window.bind("<MouseWheel>", self.handle_scrollmousewheel_darwin)
             case 'win32':
-                self.window.bind("<MouseWheel>", self.scrollmousewheel_win32)
+                self.window.bind("<MouseWheel>", self.handle_scrollmousewheel_win32)
             case _:
                 raise Exception("Unsuported platform '{}'".format(sys.platform))
+        # ---
+        self.chrome: Chrome = Chrome(self)
+        self.dimensions["height"] -= self.chrome.bottom
 
-    # --- Event handlers
-    def scrollup(self, e: tkinter.Event) -> None:
-        self.scroll = max(self.scroll - SCROLL_STEP, 0)
+    def handle_scrollup(self, e: tkinter.Event) -> None:
+        self.active_tab.scrollup()
         self.draw()
 
-    def scrolldown(self, e: tkinter.Event) -> None:
-        self.scroll = min(self.scroll + SCROLL_STEP, self.display_height())
+    def handle_scrolldown(self, e: tkinter.Event) -> None:
+        self.active_tab.scrolldown()
         self.draw()
 
-    def scrollmousewheel_win32(self, e: tkinter.Event) -> None:
-        delta = int(e.delta / 120) * SCROLL_STEP * -1 # Resets win32 standart 120 step and invert
-        if delta < 0: self.scroll = max(self.scroll + delta, 0)
-        else: self.scroll = min(self.scroll + delta, self.display_height())
+    def handle_scrollmousewheel_win32(self, e: tkinter.Event) -> None:
+        self.active_tab.scrollmousewheel_win32(e.delta)
         self.draw()
 
-    def scrollmousewheel_darwin(self, e: tkinter.Event) -> None:
-        delta = e.delta * SCROLL_STEP # Resets darwin standart 1 step
-        if delta < 0: self.scroll = max(self.scroll + delta, 0)
-        else: self.scroll = min(self.scroll + delta, self.display_height())
+    def handle_scrollmousewheel_darwin(self, e: tkinter.Event) -> None:
+        self.active_tab.scrollmousewheel_darwin(e.delta)
         self.draw()
 
-    def configure(self, e: tkinter.Event) -> None:
-        if self.dimensions["width"] == e.width and self.dimensions["height"] == e.height: return
+    def handle_configure(self, e: tkinter.Event) -> None:
+        if self.dimensions["width"] == e.width \
+        and self.dimensions["height"] == e.height + self.chrome.bottom: return
         self.dimensions["width"] = e.width
-        self.dimensions["height"] = e.height
-        self.document = DocumentLayout(self.nodes, self.dimensions)
-        self.document.layout()
-        self.display_list = []
-        paint_tree(self.document, self.display_list)
+        self.dimensions["height"] = e.height - self.chrome.bottom
+        self.active_tab.configure()
+        self.chrome.configure()
         self.draw()
 
-    # --- Functions
-    def display_height(self) -> int:
-        h = self.document.height - self.dimensions["height"] + self.dimensions["vstep"] * 2
-        return max(0, h)
+    def handle_click(self, e: tkinter.Event) -> None:
+        if e.y < self.chrome.bottom:
+            self.chrome.click(e.x, e.y)
+        else:
+            tab_y = e.y - self.chrome.bottom
+            self.active_tab.click(e.x, tab_y)
+        self.draw()
+
+    def handle_key(self, e: tkinter.Event) -> None:
+        if len(e.char) == 0: return
+        if not (0x20 <= ord(e.char) < 0x7f): return
+        self.chrome.keypress(e.char)
+        self.draw()
+
+    def handle_enter(self, e: tkinter.Event) -> None:
+        self.chrome.enter()
+        self.draw()
 
     def draw(self) -> None:
         self.canvas.delete("all")
-        # Draws content
-        for cmd in self.display_list:
-            if cmd.top > self.scroll + self.dimensions["height"]: continue
-            if cmd.bottom < self.scroll: continue
-            cmd.execute(self.scroll, self.canvas)
-        # Draws scrollbar
-        dh = self.display_height()
-        if dh > 0:
-            ratio = int((self.scroll / dh) * (self.dimensions["height"] - self.dimensions["vstep"]))
-            self.canvas.create_rectangle(
-                self.dimensions['width'] - self.dimensions["hstep"] + SCROLLBAR_OFFSET,
-                ratio + SCROLLBAR_OFFSET,
-                self.dimensions["width"] - SCROLLBAR_OFFSET,
-                ratio + self.dimensions["vstep"] - SCROLLBAR_OFFSET,
-                fill="blue",
-                width=0
-            )
-
-    def load(self, url: URL) -> None:
-        body = url.request()
-        if url.view_source:
-            self.nodes = HTMLSourceParser(body).source()
-        else:
-            self.nodes = HTMLParser(body).parse()
-        rules = DEFAULT_STYLE_SHEET.copy()
-        sheets: list[Element] = []
-        # Gathering style sheets
-        for node in tree_to_list(self.nodes, []):
-            if (isinstance(node, Element) \
-            and node.tag == "link" \
-            and node.attributes.get("rel") == "stylesheet" \
-            and "href" in node.attributes) \
-            or (isinstance(node, Element) \
-            and node.tag == "style"):
-                sheets.append(node)
-        # Parsing style sheets
-        for node in sheets:
-            body = ""
-            if node.tag == "link":
-                style_url = url.resolve(node.attributes["href"])
-                try: body = style_url.request()
-                except: continue
-            elif node.tag == "style":
-                for child in node.children:
-                    if isinstance(child, Text):
-                        body += child.text
-            rules.extend(CSSParser(body).parse())
-        # Styling
-        style(self.nodes, sorted(rules, key=cascade_priority))
-        self.document = DocumentLayout(self.nodes, self.dimensions)
-        self.document.layout()
-        self.display_list = []
-        paint_tree(self.document, self.display_list)  
+        self.active_tab.draw(self.canvas, self.chrome.bottom)
+        for cmd in self.chrome.paint():
+            cmd.execute(0, self.canvas)
+    
+    def new_tab(self, url: URL) -> None:
+        new_tab = Tab(self.dimensions)
+        new_tab.load(url)
+        self.active_tab = new_tab
+        self.tabs.append(new_tab)
         self.draw()
 
-def tree_to_list(tree, ls: list) -> list:
-    ls.append(tree)
-    for child in tree.children:
-        tree_to_list(child, ls)
-    return ls
 
-def print_tree(node, indent=0) -> None:
-    print(" " * indent, node)
-    for child in node.children:
-        print_tree(child, indent+2)
-
-def paint_tree(layout_object: DocumentLayout | BlockLayout, display_list: list[DrawText | DrawRect]) -> None:
-    display_list.extend(layout_object.paint())
-    for child in layout_object.children:
-        paint_tree(child, display_list)

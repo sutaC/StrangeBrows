@@ -89,6 +89,14 @@ class URL:
             self.url = "about:blank"
         atexit.register(self.cleanup)
 
+    def __str__(self) -> str:
+        port_part = ":" + str(self.port)
+        if self.scheme == "https" and self.port == 443:
+            port_part = ""
+        elif self.scheme == "http" and self.port == 80:
+            port_part = ""
+        return self.scheme + "://" + self.host + port_part + self.path
+
     def cleanup(self) -> None:
         if self.saved_socket is not None:
             self.saved_socket.close()
@@ -160,6 +168,7 @@ class URL:
             self.redirect_count += 1
             if self.redirect_count > REDIRECT_LIMIT:
                 raise Exception("Reached redirection limit")
+            assert "location" in response_headers
             location: str = response_headers["location"]
             new_url = self.resolve(location)
             new_url.saved_socket = self.saved_socket
@@ -190,7 +199,7 @@ class URL:
             if cache_control == "no-store":
                 pass
             elif cache_control.startswith("max-age"):
-                max_age = int(cache_control.split("=", 1)[1])
+                max_age = int(cache_control.split("=", 1)[1].split(",", 1)[0])
                 assert max_age >= 0
                 age = 0
                 if "age" in response_headers:
