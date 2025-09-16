@@ -137,5 +137,10 @@ class Chrome:
             self.browser.active_tab.load(URL(self.address_bar))
             self.focus = None
 
+    def backspace(self) -> None:
+        if self.focus == "address bar":
+            if self.address_bar:
+                self.address_bar = self.address_bar[:-1]
+
     def configure(self) -> None:
         self.address_rect.right = self.browser.dimensions["width"] - self.padding

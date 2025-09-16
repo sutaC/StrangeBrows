@@ -30,6 +30,7 @@ class Browser:
         self.window.bind("<Button-1>", self.handle_click)
         self.window.bind("<Key>", self.handle_key)
         self.window.bind("<Return>", self.handle_enter)
+        self.window.bind("<BackSpace>", self.handle_backspace)
         # System dependent
         match sys.platform:
             case 'linux':
@@ -86,6 +87,10 @@ class Browser:
 
     def handle_enter(self, e: tkinter.Event) -> None:
         self.chrome.enter()
+        self.draw()
+
+    def handle_backspace(self, e: tkinter.Event) -> None:
+        self.chrome.backspace()
         self.draw()
 
     def draw(self) -> None:
