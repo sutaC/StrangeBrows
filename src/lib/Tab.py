@@ -149,6 +149,16 @@ class Tab:
             self.history.pop()
             back = self.history.pop()
             self.load(back)
+    
+    def page_title(self) -> str | None:
+        head = self.document.node.children[0]
+        for child in head.children:
+            if isinstance(child, Element) and child.tag == "title":
+                if not child.children: return None
+                [text] = child.children
+                if isinstance(text, Element): return None
+                return text.text
+        return None
 
 def tree_to_list(tree, ls: list) -> list:
     ls.append(tree)

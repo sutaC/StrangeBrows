@@ -126,6 +126,7 @@ class Chrome:
             for i, tab in enumerate(self.browser.tabs):
                 if self.tab_rect(i).contains_point(x, y):
                     self.browser.active_tab = tab
+                    self.browser.update_title()
                     break
     
     def keypress(self, char: str) -> None:

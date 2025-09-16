@@ -90,8 +90,10 @@ class URL:
         atexit.register(self.cleanup)
 
     def __str__(self) -> str:
-        port_part = ":" + str(self.port)
-        if self.scheme == "https" and self.port == 443:
+        port_part = ":" + str(self.port if hasattr(self, "port") else "")
+        if port_part == ":":
+            port_part= ""
+        elif self.scheme == "https" and self.port == 443:
             port_part = ""
         elif self.scheme == "http" and self.port == 80:
             port_part = ""

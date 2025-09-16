@@ -113,5 +113,11 @@ class Browser:
         self.active_tab = new_tab
         self.tabs.append(new_tab)
         self.draw()
-
-
+        self.update_title()
+        
+    def update_title(self) -> None:
+        title = self.active_tab.page_title()
+        if title is not None:
+            self.window.title("{} – StrangeBrows".format(title))
+        else:
+            self.window.title("StrangeBrows")
