@@ -28,6 +28,7 @@ class Browser:
         self.window.bind("<Down>", self.handle_scrolldown)
         self.window.bind("<Configure>", self.handle_configure)
         self.window.bind("<Button-1>", self.handle_click)
+        self.window.bind("<Button-2>", self.handle_middle_click)
         self.window.bind("<Key>", self.handle_key)
         self.window.bind("<Return>", self.handle_enter)
         self.window.bind("<BackSpace>", self.handle_backspace)
@@ -78,6 +79,13 @@ class Browser:
             tab_y = e.y - self.chrome.bottom
             self.active_tab.click(e.x, tab_y)
         self.draw()
+
+    def handle_middle_click(self, e: tkinter.Event) -> None:
+        if e.y < self.chrome.bottom: return
+        tab_y = e.y - self.chrome.bottom
+        url = self.active_tab.middle_click(e.x, tab_y)
+        if not url: return
+        self.new_tab(url)
 
     def handle_key(self, e: tkinter.Event) -> None:
         if len(e.char) == 0: return

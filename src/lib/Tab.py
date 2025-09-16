@@ -49,6 +49,22 @@ class Tab:
         self.display_list = []
         paint_tree(self.document, self.display_list)
 
+    def middle_click(self, x: int, y: int) -> URL | None:
+        y += self.scroll
+        objs: list[BlockLayout] = [obj for obj in tree_to_list(self.document, []) 
+            if obj.x <= x < obj.x + obj.width
+            and obj.y <= y < obj.y + obj.height
+        ]
+        if not objs: return
+        elt: Element | Text | None = objs[-1].node if not isinstance(objs[-1].node, list) else objs[-1].node[-1]
+        while elt:
+            if isinstance(elt, Text):
+                pass
+            elif elt.tag == "a" and "href" in elt.attributes:
+                return self.url.resolve(elt.attributes["href"])
+            elt = elt.parent
+        return None
+
     def click(self, x: int, y: int) -> None:
         y += self.scroll
         objs: list[BlockLayout] = [obj for obj in tree_to_list(self.document, []) 
