@@ -55,9 +55,9 @@ class Cache:
 
 class URL:
     def __init__(self, url: str):
-        self.CACHE = Cache(os.path.join(BASE_DIR, "cache.sqlite"))
+        self.cache = Cache(os.path.join(BASE_DIR, "cache.sqlite"))
         self.redirect_count = 0
-        self.saved_socket: socket.socket | None = None
+        self.saved_sockets: dict[tuple[str, str, int], socket.socket] = {}
         if not url:
             url = DEFAULT_PAGE_URL
         self.url: str = url
@@ -100,13 +100,13 @@ class URL:
         return self.scheme + "://" + self.host + port_part + self.path
 
     def cleanup(self) -> None:
-        if self.saved_socket is not None:
-            self.saved_socket.close()
+        for k, s in self.saved_sockets.items():
+            s.close()
 
     def resolve(self, url: str) -> 'URL':
         if "://" in  url: return URL(url)
         if url.startswith("./"): url = url.removeprefix("./")
-        if not url.startswith("/", 1):
+        if not url.startswith("/"):
             dir, _ = self.path.rsplit("/", 1)
             while url.startswith("../"):
                 _, url = url.rsplit("/", 1)
@@ -128,12 +128,12 @@ class URL:
             return content
         elif self.scheme == "data":
             return self.content
-        cached_response = self.CACHE.get(self.url)
+        cached_response = self.cache.get(self.url)
         if cached_response is not None:
             return cached_response
         s: socket.socket
-        if self.saved_socket is not None:
-            s = self.saved_socket
+        if self.scheme in ["http", "https"] and (self.scheme, self.host, self.port) in self.saved_sockets:
+            s = self.saved_sockets[(self.scheme, self.host, self.port)]
         else:
             s = socket.socket(
                 family=socket.AF_INET, 
@@ -143,7 +143,7 @@ class URL:
             if self.scheme == "https":
                 ctx = ssl.create_default_context()
                 s = ctx.wrap_socket(s, server_hostname=self.host)
-            self.saved_socket = s
+            self.saved_sockets[(self.scheme, self.host, self.port)] = s
             s.connect((self.host, self.port))
         request_headers = {
             "Host": self.host,
@@ -173,7 +173,7 @@ class URL:
             assert "location" in response_headers
             location: str = response_headers["location"]
             new_url = self.resolve(location)
-            new_url.saved_socket = self.saved_socket
+            new_url.saved_sockets = self.saved_sockets
             new_url.redirect_count = self.redirect_count
             return new_url.request()
         else:
@@ -208,5 +208,5 @@ class URL:
                     age = int(response_headers["age"])
                     assert age >= 0
                 expires = int(time()) + max_age - age
-                self.CACHE.add(self.url, expires, content)
+                self.cache.add(self.url, expires, content)
         return content
