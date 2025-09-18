@@ -7,11 +7,13 @@ class Chrome:
         from .Browser import Browser
         assert isinstance(browser, Browser)
         self.browser: Browser = browser
+        # Base
         self.font = get_font("", 14, "normal", "roman")
         self.font_height = self.font.metrics("linespace")
         self.padding = 5
         self.tabbar_top = 0
         self.tabbar_bottom = self.font_height + 2*self.padding
+        # New tab button
         plus_width = self.font.measure("+") + 2*self.padding
         self.newtab_rect = Rect(
             self.padding, self.padding,
@@ -21,6 +23,7 @@ class Chrome:
         self.urlbar_top = self.tabbar_bottom
         self.urlbar_bottom = self.urlbar_top + self.font_height + 2*self.padding
         self.bottom = self.urlbar_bottom
+        # Back button
         back_width = self.font.measure("<") + 2*self.padding
         self.back_rect = Rect(
             self.padding,
@@ -28,8 +31,17 @@ class Chrome:
             self.padding + back_width,
             self.urlbar_bottom - self.padding
         )
+        # Forward button
+        forward_width = self.font.measure(">") + 2*self.padding
+        self.forward_rect = Rect(
+            self.back_rect.right + self.padding,
+            self.urlbar_top + self.padding,
+            self.back_rect.right + self.padding + forward_width,
+            self.urlbar_bottom - self.padding
+        )
+        # Address bar
         self.address_rect = Rect(
-            self.back_rect.top + self.padding,
+            self.forward_rect.right + self.padding,
             self.urlbar_top + self.padding,
             self.browser.dimensions["width"] - self.padding,
             self.urlbar_bottom - self.padding
@@ -55,11 +67,22 @@ class Chrome:
             0, self.bottom, self.browser.dimensions["width"], self.bottom,
             "black", 1))
         # Back button
+        if not self.browser.active_tab.can_back():
+            cmds.append(DrawRect(self.back_rect, "grey"))
         cmds.append(DrawOutline(self.back_rect, "black", 1))
         cmds.append(DrawText(
             self.back_rect.left + self.padding,
             self.back_rect.top,
             "<", self.font, "black"
+        ))
+        # Forward button
+        if not self.browser.active_tab.can_forward():
+            cmds.append(DrawRect(self.forward_rect, "grey"))
+        cmds.append(DrawOutline(self.forward_rect, "black", 1))
+        cmds.append(DrawText(
+            self.forward_rect.left + self.padding,
+            self.forward_rect.top,
+            ">", self.font, "black"
         ))
         # New tab button
         cmds.append(DrawOutline(self.newtab_rect, "black", 1))
@@ -119,6 +142,8 @@ class Chrome:
             self.browser.new_tab(URL("https://browser.engineering/"))
         elif self.back_rect.contains_point(x, y):
             self.browser.active_tab.go_back()
+        elif self.forward_rect.contains_point(x, y):
+            self.browser.active_tab.go_forward()
         elif self.address_rect.contains_point(x, y):
             self.focus = "address bar"
             self.address_bar = ""
@@ -136,6 +161,7 @@ class Chrome:
     def enter(self) -> None:
         if self.focus == "address bar":
             self.browser.active_tab.load(URL(self.address_bar))
+            self.browser.active_tab.clear_forward()
             self.focus = None
 
     def backspace(self) -> None:

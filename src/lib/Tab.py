@@ -25,6 +25,7 @@ class Tab:
         self.display_list: list[Draw] = []
         self.scroll = 0
         self.history: list[URL] = []
+        self.forward_history: list[URL] = []
         
     # --- Event handlers
     def scrollup(self) -> None:
@@ -78,6 +79,7 @@ class Tab:
                 pass
             elif elt.tag == "a" and "href" in elt.attributes:
                 url = self.url.resolve(elt.attributes["href"])
+                self.clear_forward()
                 return self.load(url)
             elt = elt.parent
 
@@ -109,8 +111,8 @@ class Tab:
         self.history.append(url)
         self.url = url
         self.scroll = 0
-        body = url.request()
-        if url.view_source:
+        body = self.url.request()
+        if self.url.view_source:
             self.nodes = HTMLSourceParser(body).source()
         else:
             self.nodes = HTMLParser(body).parse()
@@ -144,11 +146,26 @@ class Tab:
         self.display_list = []
         paint_tree(self.document, self.display_list)
 
+    def can_back(self) -> bool:
+        return len(self.history) > 1 
+
+    def can_forward(self) -> bool:
+        return bool(self.forward_history)
+
     def go_back(self) -> None:
-        if len(self.history) > 1:
-            self.history.pop()
+        if self.can_back():
+            forward = self.history.pop()
+            self.forward_history.append(forward)
             back = self.history.pop()
             self.load(back)
+
+    def go_forward(self) -> None:
+        if self.can_forward():
+            forward = self.forward_history.pop()
+            self.load(forward)
+
+    def clear_forward(self) -> None:
+        self.forward_history.clear()
     
     def page_title(self) -> str | None:
         head = self.document.node.children[0]
