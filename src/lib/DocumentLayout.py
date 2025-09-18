@@ -2,7 +2,6 @@ import os
 import tkinter
 import tkinter.font
 from typing import Any, Literal, TypedDict
-
 from .Draw import Draw, DrawText, DrawRect, Rect
 from .HTMLParser import Element, Text, HEAD_TAGS
 

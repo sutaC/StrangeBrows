@@ -69,7 +69,7 @@ class URL:
             if url.startswith("data"):
                 self.scheme, url = url.split(":", 1)
                 self.type, self.content = url.split(",", 1)
-                return            
+                return
             self.scheme, url = url.split("://", 1)
             assert self.scheme in ["http", "https", "file", "data"]
             if self.scheme == "http":
@@ -77,6 +77,9 @@ class URL:
             elif self.scheme == "https":
                 self.port = 443
             if self.scheme == "data": return
+            self.fragment = None
+            if "#" in url:
+                url, self.fragment = url.split("#", 1) 
             if "/" not in url:
                 url = url + "/"
             self.host, url = url.split("/", 1)
@@ -97,13 +100,18 @@ class URL:
             port_part = ""
         elif self.scheme == "http" and self.port == 80:
             port_part = ""
-        return self.scheme + "://" + self.host + port_part + self.path
+        fragment_part = ""
+        if self.fragment:
+            fragment_part = "#" + self.fragment
+        return self.scheme + "://" + self.host + port_part + self.path + fragment_part
 
     def cleanup(self) -> None:
         for k, s in self.saved_sockets.items():
             s.close()
 
     def resolve(self, url: str) -> 'URL':
+        if url.startswith("#"):
+            return URL(self.scheme + "://" + self.host + ":" + str(self.port) + self.path + url)
         if "://" in  url: return URL(url)
         if url.startswith("./"): url = url.removeprefix("./")
         if not url.startswith("/"):

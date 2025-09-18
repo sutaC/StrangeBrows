@@ -78,9 +78,18 @@ class Tab:
             if isinstance(elt, Text):
                 pass
             elif elt.tag == "a" and "href" in elt.attributes:
-                url = self.url.resolve(elt.attributes["href"])
-                self.clear_forward()
-                return self.load(url)
+                href = elt.attributes["href"]
+                if href.startswith("#"): # Fragment link support
+                    self.url.fragment = href[1:]
+                    node = find_node_by_id(self.url.fragment, self.document)
+                    if node is not None: 
+                        self.scroll = node.y
+                        self.scrollmousewheel_darwin(0) # Prevents overscroll
+                else:
+                    url = self.url.resolve(href)
+                    self.clear_forward()
+                    self.load(url)
+                return
             elt = elt.parent
 
     # --- Functions
@@ -143,6 +152,12 @@ class Tab:
         style(self.nodes, sorted(rules, key=cascade_priority))
         self.document = DocumentLayout(self.nodes, self.dimensions)
         self.document.layout()
+        # Fragment handling
+        if self.url.fragment:
+            node = find_node_by_id(self.url.fragment, self.document)
+            if node is not None: 
+                self.scroll = node.y
+                self.scrollmousewheel_darwin(0) # Prevents overscroll
         self.display_list = []
         paint_tree(self.document, self.display_list)
 
@@ -194,3 +209,11 @@ display_list: list[Draw]) -> None:
     display_list.extend(layout_object.paint())
     for child in layout_object.children:
         paint_tree(child, display_list)
+
+def find_node_by_id(id: str, root: DocumentLayout) -> BlockLayout | None:
+    for layout in tree_to_list(root, []):
+        if isinstance(layout.node, Element) \
+        and "id" in layout.node.attributes \
+        and layout.node.attributes["id"] == id:
+            return layout
+    return None
