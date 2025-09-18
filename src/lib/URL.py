@@ -56,6 +56,7 @@ class Cache:
 class URL:
     def __init__(self, url: str):
         self.cache = Cache(os.path.join(BASE_DIR, "cache.sqlite"))
+        self.is_valid = True
         self.redirect_count = 0
         self.saved_sockets: dict[tuple[str, str, int], socket.socket] = {}
         if not url:
@@ -80,7 +81,7 @@ class URL:
             self.fragment = None
             if "#" in url:
                 url, self.fragment = url.split("#", 1) 
-            if "/" not in url:
+            if "/" not in url and "?" not in url:
                 url = url + "/"
             self.host, url = url.split("/", 1)
             self.path = "/" + url
@@ -88,8 +89,16 @@ class URL:
                 self.host, port = self.host.split(":", 1)
                 self.port = int(port)
         except:
-            print("Recived malformed url '{}', unable to continue...".format(self.url))
-            self.url = "about:blank"
+            # Invalid url override
+            self.valid_url = False
+            query = self.url.replace(" ", "+")
+            # Using `duckduckgo.com`, becouse it provides raw html without auth
+            self.url = "https://lite.duckduckgo.com/lite?p={}".format(query) 
+            self.scheme = "https"
+            self.host = "lite.duckduckgo.com"
+            self.port = 443
+            self.path = "/lite?p={}".format(query)
+            self.fragment = None
         atexit.register(self.cleanup)
 
     def __str__(self) -> str:
@@ -127,6 +136,7 @@ class URL:
             return URL(self.scheme + "://" + self.host + ":" + str(self.port) + url)
 
     def request(self) -> str:
+        # Base cases
         if self.url == "about:blank":
             return ""
         if self.scheme == "file":
@@ -139,9 +149,11 @@ class URL:
         cached_response = self.cache.get(self.url)
         if cached_response is not None:
             return cached_response
+        # Socket
         s: socket.socket
-        if self.scheme in ["http", "https"] and (self.scheme, self.host, self.port) in self.saved_sockets:
-            s = self.saved_sockets[(self.scheme, self.host, self.port)]
+        socket_key = (self.scheme, self.host, self.port)
+        if socket_key in self.saved_sockets and self.saved_sockets[socket_key].fileno() != -1:
+            s = self.saved_sockets[socket_key]
         else:
             s = socket.socket(
                 family=socket.AF_INET, 
@@ -153,6 +165,7 @@ class URL:
                 s = ctx.wrap_socket(s, server_hostname=self.host)
             self.saved_sockets[(self.scheme, self.host, self.port)] = s
             s.connect((self.host, self.port))
+        # Request
         request_headers = {
             "Host": self.host,
             "Connection": "keep-alive",
@@ -165,27 +178,22 @@ class URL:
         request += "\r\n"
         s.send(request.encode())
         response = s.makefile("rb", encoding="utf-8", newline="\r\n")
+        # Status line
         statusline = response.readline().decode()
-        version, status, explenation = statusline.split(" ", 2)
+        try:
+            version, status, explenation = statusline.split(" ", 2)
+        except:
+            print("Recived invalid response from '{}'...".format(self.url))
+            return ""
         status = int(status)
+        # Headers
         response_headers = {}
         while True:
             line = response.readline().decode()
             if line == "\r\n": break
             header, value = line.split(":", 1)
             response_headers[header.casefold()] = value.strip()
-        if 300 <= status < 400:
-            self.redirect_count += 1
-            if self.redirect_count > REDIRECT_LIMIT:
-                raise Exception("Reached redirection limit")
-            assert "location" in response_headers
-            location: str = response_headers["location"]
-            new_url = self.resolve(location)
-            new_url.saved_sockets = self.saved_sockets
-            new_url.redirect_count = self.redirect_count
-            return new_url.request()
-        else:
-            self.redirect_count = 0
+        # Content
         content: str
         if "content-encoding" in response_headers and response_headers["content-encoding"] == "gzip":
             if "transfer-encoding" in response_headers and response_headers["transfer-encoding"] == "chunked":
@@ -202,8 +210,22 @@ class URL:
                 encoded_content = response.read(content_length)
                 content = gzip.decompress(encoded_content).decode()
         else:
-            content_length = int(response_headers["content-length"])
+            content_length = int(response_headers["content-length"]) \
+                if "content-length" in response_headers else None
             content = response.read(content_length).decode()
+        # Response handling
+        if 300 <= status < 400:
+            self.redirect_count += 1
+            if self.redirect_count > REDIRECT_LIMIT:
+                raise Exception("Reached redirection limit")
+            assert "location" in response_headers
+            location: str = response_headers["location"]
+            new_url = self.resolve(location)
+            new_url.redirect_count = self.redirect_count
+            new_url.saved_sockets = self.saved_sockets
+            return new_url.request()
+        else:
+            self.redirect_count = 0
         if status == 200 and "cache-control" in response_headers:
             cache_control: str = response_headers["cache-control"]
             if cache_control == "no-store":

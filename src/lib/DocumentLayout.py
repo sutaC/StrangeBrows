@@ -34,7 +34,7 @@ class DocumentLayout:
         self.height: int
 
     def __repr__(self) -> str:
-        return "<{}> x{} y{} w{} h{}".format(self.node.tag, self.x, self.y, self.width, self.height)
+        return "DocumentLayout"
 
     def layout(self) -> None:
         child = BlockLayout(self.node, self, None, self.dimensions)
@@ -72,12 +72,12 @@ class BlockLayout:
 
     def __repr__(self) -> str:
             if isinstance(self.node, Element):
-                return "<{}> | x{} y{} w{} h{}".format(self.node.tag , self.x, self.y, self.width, self.height)
+                return "BlockLayout[{}] ({} element)".format(self.layout_mode(), self.node.tag)
             elif isinstance(self.node, Text):
-                return "{} | x{} y{} w{} h{}".format(self.node.text , self.x, self.y, self.width, self.height)
+                return "BlockLayout[{}] (\"{}\")".format(self.layout_mode(), self.node.text.strip().replace("\n", " "))
             else:
-                ls = ["<{}>".format(n.tag) if isinstance(n, Element) else "..." for n in self.node]
-                return "({}) | x{} y{} w{} h{}".format(', '.join(ls), self.x, self.y, self.width, self.height)
+                ls = [n.tag if isinstance(n, Element) else "..." for n in self.node]
+                return "BlockLayout[{}] ({} anonymus)".format(self.layout_mode(), ls)
 
     def layout(self) -> None:
         if self.previous:
@@ -305,6 +305,9 @@ class LineLayout:
         self.width: int
         self.height: int
 
+    def __repr__(self) -> str:
+        return "LineLayout"
+
     def layout(self) -> None:
         self.width = self.parent.width
         self.x = self.parent.x
@@ -359,6 +362,9 @@ class TextLayout:
         self.height: int
         # ---
         self.no_space: bool = self.node.style["white-space"] == "pre"
+
+    def __repr__(self) -> str:
+        return "TextLayout (\"{}\")".format(self.word)
 
     def layout(self) -> None:
         # Prop type checking

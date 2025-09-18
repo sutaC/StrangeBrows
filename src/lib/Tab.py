@@ -141,6 +141,7 @@ class Tab:
             body = ""
             if node.tag == "link":
                 style_url = url.resolve(node.attributes["href"])
+                if not style_url.is_valid: continue
                 try: body = style_url.request()
                 except: continue
             elif node.tag == "style":
