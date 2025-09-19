@@ -1,7 +1,7 @@
 import os
 import tkinter
-from .Draw import Draw
 from .URL import URL
+from .Draw import Draw
 from .CSSParser import CSSParser, style, cascade_priority
 from .HTMLParser import HTMLParser, HTMLSourceParser, Element, Text
 from .DocumentLayout import Dimensions, DocumentLayout, BlockLayout, LineLayout, TextLayout
@@ -18,7 +18,7 @@ DEFAULT_STYLE_SHEET = CSSParser(
 ).parse()
 
 class Tab:
-    def __init__(self, dimesnions: Dimensions) -> None:       
+    def __init__(self, dimesnions: Dimensions) -> None:
         self.url: URL
         self.dimensions: Dimensions = dimesnions
         self.images: list[tkinter.PhotoImage] = []
@@ -117,9 +117,10 @@ class Tab:
             )
 
     def load(self, url: URL) -> None:
+        self.scroll = 0
         self.history.append(url)
         self.url = url
-        self.scroll = 0
+        self.url.storage.add_to_history(str(self.url))
         body = self.url.request()
         if self.url.view_source:
             self.nodes = HTMLSourceParser(body).source()
@@ -127,8 +128,9 @@ class Tab:
             self.nodes = HTMLParser(body).parse()
         rules = DEFAULT_STYLE_SHEET.copy()
         sheets: list[Element] = []
-        # Gathering style sheets
+        # Populating nodes
         for node in tree_to_list(self.nodes, []):
+            # Gathering style sheets
             if (isinstance(node, Element) \
             and node.tag == "link" \
             and node.attributes.get("rel") == "stylesheet" \
@@ -136,6 +138,15 @@ class Tab:
             or (isinstance(node, Element) \
             and node.tag == "style"):
                 sheets.append(node)
+            # Propagating :visited on <a> tags
+            if isinstance(node, Element) \
+            and node.tag == "a" \
+            and "href" in node.attributes:
+                url = self.url.resolve(node.attributes["href"])
+                if url.is_valid and url.storage.get_from_history(str(url)):
+                    node.attributes["visited"] = ""
+                elif "visited" in node.attributes: 
+                    node.attributes.pop("visited")
         # Parsing style sheets
         for node in sheets:
             body = ""

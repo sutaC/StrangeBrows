@@ -119,19 +119,17 @@ class SequenceSelector(Selector):
             if not s.matches(node): return False
         return True
 
-class HasSelector(Selector):
-    def __init__(self, parent: Selector, children: list[Selector]) -> None:
-        self.parent: Selector = parent
+class PcHasSelector(Selector):
+    def __init__(self, children: list[Selector]) -> None:
         self.children: list[Selector] = children
-        assert not any(isinstance(child, HasSelector) for child in children)
-        self.priority: int = parent.priority + sum(child.priority for child in self.children)
+        assert not any(isinstance(child, PcHasSelector) for child in children)
+        self.priority: int = sum(child.priority for child in self.children)
         
     def __repr__(self) -> str:
-        return "*|" + self.parent.__repr__()[2:-1] + \
-        ":has(" + " ".join(child.__repr__()[2:-1] for child in self.children) + ")|"
+        return "*|:has(" + " ".join(child.__repr__()[2:-1] for child in self.children) + ")|"
 
-    def __deepcopy__(self) -> 'HasSelector':
-        return HasSelector(self.parent, self.children.copy())
+    def __deepcopy__(self) -> 'PcHasSelector':
+        return PcHasSelector(self.children.copy())
     
     def child_matches(self, node: Element | Text, i=0) -> bool:
         if self.children[i].matches(node):
@@ -143,10 +141,22 @@ class HasSelector(Selector):
         return False
 
     def matches(self, node: Element | Text) -> bool:
-        if not self.parent.matches(node): return False
         for child in node.children:
             if self.child_matches(child): return True
         return False
+
+class PcVisitedSelector(Selector):
+    def __init__(self) -> None:
+        self.priority: int = 1
+
+    def __repr__(self) -> str:
+        return ":visited"
+
+    def __deepcopy__(self) -> 'PcVisitedSelector':
+        return PcVisitedSelector()
+
+    def matches(self, node: Element | Text) -> bool:
+        return isinstance(node, Element) and "visited" in node.attributes
 
 class CSSParser:
     def __init__(self, s: str) -> None:
@@ -323,7 +333,7 @@ def cascade_priority(rule: CSS_rule) -> int:
     return selector.priority
 
 def get_selector(name: str) -> Selector:
-    # hasSelector support
+    # :has() Selector
     if ":has(" in name:
         if not ")" in name: raise Exception("Parsing error")
         parent, children = name.split(":has(", 1)
@@ -333,12 +343,22 @@ def get_selector(name: str) -> Selector:
         else: children, rest = children.split(")", 1)
         parent_selector = get_selector(parent)
         children_selectors = [get_selector(cname) for cname in children.split()]        
-        if children_selectors: combined_selector = HasSelector(parent_selector, children_selectors)
-        else: combined_selector = parent_selector
-        if rest: combined_selector = SequenceSelector([combined_selector, get_selector(name)])
+        if children_selectors: 
+            combined_selector =  SequenceSelector([parent_selector, PcHasSelector(children_selectors)])
+        else: 
+            combined_selector = parent_selector
+        if rest: 
+            combined_selector = SequenceSelector([combined_selector, get_selector(name)])
         return combined_selector
+    # :visited Selector
+    if ":visited" in name:
+        prev, next = name.split(":visited", 1)
+        selectors: list[Selector] = [PcVisitedSelector()]
+        if prev: selectors = [get_selector(prev)] + selectors
+        if next: selectors =  selectors + [get_selector(next)]
+        return SequenceSelector(selectors)
     # SequenceSelector support
-    idx = max(name.find("#", 1), name.find(".", 1))     
+    idx = max(name.find("#", 1), name.find(".", 1))
     if idx > -1:
         return SequenceSelector([
             get_selector(name[:idx]), 

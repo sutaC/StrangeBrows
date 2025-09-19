@@ -236,10 +236,8 @@ class BlockLayout:
         if node.style["font-style"] == "normal": style = "roman"
         # ---
         family  = node.style["font-family"]
-        try:
-            size = int(float(node.style["font-size"][:-2]) * .75)
-        except:
-            size = 12
+        try: size = int(float(node.style["font-size"][:-2]) * .75)
+        except: size = 16
         # Font variant
         if node.style["font-variant"] == "small-caps": 
             if word.islower():
@@ -378,10 +376,8 @@ class TextLayout:
         if self.node.style["font-style"] == "normal": style = "roman"
         # ---
         family  = self.node.style["font-family"]
-        try:
-            size = int(float(self.node.style["font-size"][:-2]) * .75)
-        except:
-            size = 12
+        try: size = int(float(self.node.style["font-size"][:-2]) * .75)
+        except: size = 16
         # Font variant 
         if self.node.style["font-variant"] == "small-caps" and self.word.islower(): 
             self.word = self.word.upper()

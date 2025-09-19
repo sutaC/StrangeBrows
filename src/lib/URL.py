@@ -1,61 +1,18 @@
+import os
 import atexit
 import gzip
-import os
 import socket
-import sqlite3
 import ssl
 from time import time
+from .Storage import Storage
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
 DEFAULT_PAGE_URL = "file://" + os.path.join(BASE_DIR, "assets", "home.html")
-REDIRECT_LIMIT = 5
-
-class Cache:
-    def __init__(self, dir: str = ".") -> None:
-        self.con = sqlite3.connect(dir)
-        cursor = self.con.cursor()
-        cursor.execute('CREATE TABLE IF NOT EXISTS responses (url VARCHAR(255), expires INT, body TEXT);')
-        self.con.commit()
-        cursor.close()
-        atexit.register(self.con.close)        
-
-    def add(self, url: str, expires: int, body: str) -> None:
-        cursor = self.con.cursor()
-        cursor.execute('INSERT INTO responses (url, expires, body) VALUES (?, ?, ?);', [url, expires, body])
-        self.con.commit()
-        cursor.close()
-
-    def get(self, url: str) -> str | None:
-        cursor = self.con.cursor()
-        cursor.execute("SELECT expires, body FROM responses WHERE url = ?;", [url])
-        data = cursor.fetchone()
-        cursor.close()
-        if data is None:
-            return None
-        expires: int
-        body: str
-        expires, body = data
-        now = int(time())
-        if now > expires:
-            self.delete(url)
-            return None
-        return body
-        
-    def delete(self, url: str) -> None:
-        cursor = self.con.cursor()
-        cursor.execute("DELETE FROM responses WHERE url = ?;", [url])
-        self.con.commit()
-        cursor.close()
-
-    def clean(self) -> None:
-        cursor = self.con.cursor()
-        cursor.execute("DELETE FROM responses;")
-        self.con.commit()
-        cursor.close()
+REDIRECT_LIMIT = 20
 
 class URL:
     def __init__(self, url: str):
-        self.cache = Cache(os.path.join(BASE_DIR, "cache.sqlite"))
+        self.storage = Storage()
         self.is_valid = True
         self.redirect_count = 0
         self.saved_sockets: dict[tuple[str, str, int], socket.socket] = {}
@@ -146,7 +103,7 @@ class URL:
             return content
         elif self.scheme == "data":
             return self.content
-        cached_response = self.cache.get(self.url)
+        cached_response = self.storage.get_cache(self.url)
         if cached_response is not None:
             return cached_response
         # Socket
@@ -238,5 +195,5 @@ class URL:
                     age = int(response_headers["age"])
                     assert age >= 0
                 expires = int(time()) + max_age - age
-                self.cache.add(self.url, expires, content)
+                self.storage.add_cache(self.url, expires, content)
         return content
