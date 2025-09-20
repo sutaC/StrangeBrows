@@ -2,8 +2,8 @@ import os
 import atexit
 import sqlite3
 from time import time
+from . import BASE_DIR
 
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
 STORAGE_DIR = os.path.join(BASE_DIR, "storage.db")
 
 class Storage:

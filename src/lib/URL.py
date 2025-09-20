@@ -5,8 +5,8 @@ import socket
 import ssl
 from time import time
 from .Storage import Storage
+from . import BASE_DIR
 
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
 DEFAULT_PAGE_URL = "file://" + os.path.join(BASE_DIR, "assets", "html", "home.html")
 BOOKMARKS_PAGE_DIR = os.path.join(BASE_DIR, "assets", "html", "bookmarks.html")
 REDIRECT_LIMIT = 20
@@ -18,7 +18,17 @@ class URL:
         self.redirect_count = 0
         self.saved_sockets: dict[tuple[str, str, int], socket.socket] = {}
         self.url: str = url
+        # base values
+        self.scheme: str = ""
+        self.host: str = ""
+        self.path: str = ""
+        self.port: int = 0
         self.fragment = None
+        self.view_source: bool
+        # data scheme specific
+        self.content: str = ""
+        self.type: str = ""
+        # Parsing
         if not url:
             url = DEFAULT_PAGE_URL
         try:
@@ -32,12 +42,14 @@ class URL:
                 self.type, self.content = url.split(",", 1)
                 return
             self.scheme, url = url.split("://", 1)
-            assert self.scheme in ["http", "https", "file", "data"]
-            if self.scheme == "http":
+            assert self.scheme in ["http", "https", "file"]
+            if self.scheme == "file":
+                self.path = url
+                return
+            elif self.scheme == "http":
                 self.port = 80
             elif self.scheme == "https":
                 self.port = 443
-            if self.scheme == "data": return
             if "#" in url:
                 url, self.fragment = url.split("#", 1) 
             if "/" not in url and "?" not in url:
@@ -63,6 +75,10 @@ class URL:
     def __str__(self) -> str:
         if self.url.startswith("about:"):
             return self.url
+        if self.scheme == "file":
+            return self.scheme + "://" + self.path
+        elif self.scheme == "data":
+            return self.scheme + ":" + self.type  + "," + self.content
         port_part = ":" + str(self.port if hasattr(self, "port") else "")
         if port_part == ":":
             port_part= ""
@@ -109,7 +125,7 @@ class URL:
                 content = file.read()
                 file.close() 
             except:
-                content = "<h1>404 Not found</h1>"
+                content = "<h1>404 Not Found</h1>"
             bookmarks = ['<li><a href="{}">{}</a></li>'.format(url, url)
                 for url, _ in self.storage.get_all_bookmarks()
             ]
@@ -123,7 +139,7 @@ class URL:
                 content = file.read()
                 file.close()
             except:
-                content = "<h1>404 Not found</h1>"
+                content = "<h1>404 Not Found</h1>"
             return content
         elif self.scheme == "data":
             return self.content

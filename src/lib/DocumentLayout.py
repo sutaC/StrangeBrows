@@ -5,7 +5,6 @@ from typing import Any, Literal, TypedDict
 from .Draw import Draw, DrawText, DrawRect, Rect
 from .HTMLParser import Element, Text, HEAD_TAGS
 
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
 FONTS: dict[
     tuple[str, int, Literal['normal', 'bold'], Literal['roman', 'italic']], 
     tuple[tkinter.font.Font, tkinter.Label]

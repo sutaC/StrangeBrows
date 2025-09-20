@@ -1,5 +1,6 @@
-import tkinter 
+import os
 import sys
+import tkinter 
 from .URL import URL
 from .Tab import Tab
 from .Chrome import Chrome

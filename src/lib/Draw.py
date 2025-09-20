@@ -2,8 +2,7 @@ import os
 import tkinter
 import tkinter.font
 from abc import ABC, abstractmethod
-
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
+from . import BASE_DIR
 
 class Rect:
     def __init__(self, left: int, top: int, right: int, bottom: int) -> None:
@@ -44,7 +43,7 @@ class DrawText(Draw):
                 self.image = tkinter.PhotoImage(file=image_path)
 
     def execute(self, scroll: int, canvas: tkinter.Canvas) -> None:
-        # Prints emojis
+        # Draws emojis
         if self.image:
             canvas.create_image(self.rect.left, self.rect.top, image=self.image, anchor="nw")
             return

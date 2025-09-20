@@ -5,17 +5,16 @@ from .Draw import Draw
 from .CSSParser import CSSParser, style, cascade_priority
 from .HTMLParser import HTMLParser, HTMLSourceParser, Element, Text
 from .DocumentLayout import Dimensions, DocumentLayout, BlockLayout, LineLayout, TextLayout
+from . import BASE_DIR
 
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
 SCROLL_STEP = 100
 SCROLLBAR_OFFSET = 2
 
-
-DEFAULT_STYLE_SHEET = CSSParser(
-    open(
-        os.path.join(BASE_DIR, "assets", "browser.css")
-    ).read()
-).parse()
+# Default style sheets
+ss: str = "" 
+try: ss = open(os.path.join(BASE_DIR, "assets", "browser.css")).read()
+except: print("Could not find default style sheets file")
+DEFAULT_STYLE_SHEET = CSSParser(ss).parse()
 
 class Tab:
     def __init__(self, dimesnions: Dimensions) -> None:
