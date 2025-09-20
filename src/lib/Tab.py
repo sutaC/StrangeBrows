@@ -120,7 +120,7 @@ class Tab:
         self.scroll = 0
         self.history.append(url)
         self.url = url
-        self.url.storage.add_to_history(str(self.url))
+        self.url.storage.add_history(str(self.url))
         body = self.url.request()
         if self.url.view_source:
             self.nodes = HTMLSourceParser(body).source()
@@ -143,7 +143,7 @@ class Tab:
             and node.tag == "a" \
             and "href" in node.attributes:
                 url = self.url.resolve(node.attributes["href"])
-                if url.is_valid and url.storage.get_from_history(str(url)):
+                if url.is_valid and url.storage.get_history(str(url)):
                     node.attributes["visited"] = ""
                 elif "visited" in node.attributes: 
                     node.attributes.pop("visited")
@@ -193,6 +193,12 @@ class Tab:
 
     def clear_forward(self) -> None:
         self.forward_history.clear()
+
+    def toggle_bookmark(self) -> None:
+        if self.url.storage.get_bookmark(str(self.url)):
+            self.url.storage.delete_bookmark(str(self.url))
+        else:
+            self.url.storage.add_bookmark(str(self.url))
     
     def page_title(self) -> str | None:
         head = self.document.node.children[0]

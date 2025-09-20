@@ -24,25 +24,31 @@ class Storage:
                 body TEXT NOT NULL
             );
         ''')
+        cursor.execute('''
+            CREATE TABLE IF NOT EXISTS bookmarks (
+                url VARCHAR(255) NOT NULL PRIMARY KEY,
+                timestamp DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            );
+        ''')
         self.con.commit()
         cursor.close()
         atexit.register(self.con.close)
 
     # --- History
-    def add_to_history(self, url: str) -> None:
+    def add_history(self, url: str) -> None:
         cursor = self.con.cursor()
         cursor.execute("INSERT INTO history (url) VALUES (?);", [url])
         self.con.commit()
         cursor.close()
 
-    def get_from_history(self, url: str) -> bool | None:
+    def get_history(self, url: str) -> tuple[int, str, str] | None:
         cursor = self.con.cursor()
         cursor.execute("SELECT * FROM history WHERE url = ?;", [url])
         data = cursor.fetchone()
         cursor.close()
         return data
     
-    def delete_from_history(self, url: str) -> None:
+    def delete_history(self, url: str) -> None:
         cursor = self.con.cursor()
         cursor.execute("DELETE FROM history WHERE url = ?;", [url])
         self.con.commit()
@@ -89,3 +95,35 @@ class Storage:
         self.con.commit()
         cursor.close()
 
+    # --- Bookmarks
+    def add_bookmark(self, url: str) -> None:
+        cursor = self.con.cursor()
+        cursor.execute("INSERT INTO bookmarks (url) VALUES (?);", [url])
+        self.con.commit()
+        cursor.close()
+
+    def get_bookmark(self, url: str) -> tuple[str, str] | None:
+        cursor = self.con.cursor()
+        cursor.execute("SELECT * FROM bookmarks WHERE url = ?;", [url])
+        data = cursor.fetchone()
+        cursor.close()
+        return data
+
+    def get_all_bookmarks(self) -> list[tuple[str, str]]:
+        cursor = self.con.cursor()
+        cursor.execute("SELECT * FROM bookmarks")
+        data = cursor.fetchall()
+        cursor.close()
+        return data
+
+    def delete_bookmark(self, url: str) -> None:
+        cursor = self.con.cursor()
+        cursor.execute("DELETE FROM bookmarks WHERE url = ?;", [url])
+        self.con.commit()
+        cursor.close()
+
+    def clear_bookmarks(self) -> None:
+        cursor = self.con.cursor()
+        cursor.execute("DELETE FROM bookmarks;")
+        self.con.commit()
+        cursor.close()

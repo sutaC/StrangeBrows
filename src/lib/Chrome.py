@@ -39,11 +39,19 @@ class Chrome:
             self.back_rect.right + self.padding + forward_width,
             self.urlbar_bottom - self.padding
         )
+        # Bookmark button
+        self.bookmark_width = self.font.measure("*") + 2*self.padding
+        self.bookmark_rect = Rect(
+            self.browser.dimensions["width"] - self.padding - self.bookmark_width,
+            self.urlbar_top + self.padding,
+            self.browser.dimensions["width"] - self.padding,
+            self.urlbar_bottom - self.padding
+        )
         # Address bar
         self.address_rect = Rect(
             self.forward_rect.right + self.padding,
             self.urlbar_top + self.padding,
-            self.browser.dimensions["width"] - self.padding,
+            self.bookmark_rect.left - self.padding,
             self.urlbar_bottom - self.padding
         )
         self.focus: str | None = None
@@ -90,6 +98,16 @@ class Chrome:
             self.newtab_rect.left + self.padding,
             self.newtab_rect.top,
             "+", self.font, "black"
+        ))
+        # Bookmark button
+        if self.browser.active_tab.url.storage.get_bookmark(str(self.browser.active_tab.url)):
+            # If is bookmarked
+            cmds.append(DrawRect(self.bookmark_rect, "yellow"))
+        cmds.append(DrawOutline(self.bookmark_rect, "black", 1))
+        cmds.append(DrawText(
+            self.bookmark_rect.left + self.padding,
+            self.bookmark_rect.top,
+            "*", self.font, "black"
         ))
         # Address bar
         cmds.append(DrawOutline(self.address_rect, "black", 1))
@@ -144,6 +162,8 @@ class Chrome:
             self.browser.active_tab.go_back()
         elif self.forward_rect.contains_point(x, y):
             self.browser.active_tab.go_forward()
+        elif self.bookmark_rect.contains_point(x, y):
+            self.browser.active_tab.toggle_bookmark()
         elif self.address_rect.contains_point(x, y):
             self.focus = "address bar"
             self.address_bar = ""
@@ -161,6 +181,7 @@ class Chrome:
     def enter(self) -> None:
         if self.focus == "address bar":
             self.browser.active_tab.load(URL(self.address_bar))
+            self.browser.update_title()
             self.browser.active_tab.clear_forward()
             self.focus = None
 
@@ -170,4 +191,6 @@ class Chrome:
                 self.address_bar = self.address_bar[:-1]
 
     def configure(self) -> None:
-        self.address_rect.right = self.browser.dimensions["width"] - self.padding
+        self.bookmark_rect.left = self.browser.dimensions["width"] - self.padding - self.bookmark_width
+        self.bookmark_rect.right = self.browser.dimensions["width"] - self.padding
+        self.address_rect.right = self.bookmark_rect.left - self.padding

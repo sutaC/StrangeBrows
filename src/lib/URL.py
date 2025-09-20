@@ -7,7 +7,8 @@ from time import time
 from .Storage import Storage
 
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), os.pardir, os.pardir))
-DEFAULT_PAGE_URL = "file://" + os.path.join(BASE_DIR, "assets", "home.html")
+DEFAULT_PAGE_URL = "file://" + os.path.join(BASE_DIR, "assets", "html", "home.html")
+BOOKMARKS_PAGE_DIR = os.path.join(BASE_DIR, "assets", "html", "bookmarks.html")
 REDIRECT_LIMIT = 20
 
 class URL:
@@ -16,14 +17,16 @@ class URL:
         self.is_valid = True
         self.redirect_count = 0
         self.saved_sockets: dict[tuple[str, str, int], socket.socket] = {}
+        self.url: str = url
+        self.fragment = None
         if not url:
             url = DEFAULT_PAGE_URL
-        self.url: str = url
         try:
             self.view_source = url.startswith("view-source:")
             if self.view_source:
                 url = url[len("view-source:"):]
             if url == "about:blank": return
+            if url == "about:bookmarks": return
             if url.startswith("data"):
                 self.scheme, url = url.split(":", 1)
                 self.type, self.content = url.split(",", 1)
@@ -35,7 +38,6 @@ class URL:
             elif self.scheme == "https":
                 self.port = 443
             if self.scheme == "data": return
-            self.fragment = None
             if "#" in url:
                 url, self.fragment = url.split("#", 1) 
             if "/" not in url and "?" not in url:
@@ -59,6 +61,8 @@ class URL:
         atexit.register(self.cleanup)
 
     def __str__(self) -> str:
+        if self.url.startswith("about:"):
+            return self.url
         port_part = ":" + str(self.port if hasattr(self, "port") else "")
         if port_part == ":":
             port_part= ""
@@ -96,13 +100,32 @@ class URL:
         # Base cases
         if self.url == "about:blank":
             return ""
-        if self.scheme == "file":
-            file = open(self.path, "r")
-            content = file.read()
-            file.close()
+        elif self.url == "about:bookmarks":
+            content = ""
+            try:
+                file = open(BOOKMARKS_PAGE_DIR, "r")
+                content = file.read()
+                file.close() 
+            except:
+                content = "<h1>404 Not found</h1>"
+            bookmarks = ['<li><a href="{}">{}</a></li>'.format(url, url)
+                for url, _ in self.storage.get_all_bookmarks()
+            ]
+            x_bookmarks = "<ul>{}</ul>".format("".join(bookmarks)) if bookmarks else '<small class="empty">There are no bookmarks!</small>'
+            content = content.replace("<x-bookmarks>", x_bookmarks)
+            return content
+        elif self.scheme == "file":
+            content = ""
+            try:
+                file = open(self.path, "r")
+                content = file.read()
+                file.close()
+            except:
+                content = "<h1>404 Not found</h1>"
             return content
         elif self.scheme == "data":
             return self.content
+        # Cache
         cached_response = self.storage.get_cache(self.url)
         if cached_response is not None:
             return cached_response
