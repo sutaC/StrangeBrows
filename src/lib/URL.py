@@ -80,6 +80,8 @@ class URL:
             s.close()
 
     def resolve(self, url: str) -> 'URL':
+        if url.startswith(("about:", "data:", "file://")):
+            return URL(url)
         if url.startswith("#"):
             return URL(self.scheme + "://" + self.host + ":" + str(self.port) + self.path + url)
         if "://" in  url: return URL(url)

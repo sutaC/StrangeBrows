@@ -55,7 +55,8 @@ class Chrome:
             self.urlbar_bottom - self.padding
         )
         self.focus: str | None = None
-        self.address_bar = ""
+        self.address_bar: str = ""
+        self.cursor_position: int = 0
 
     def tab_rect(self, i: int) -> 'Rect':
         tabs_start = self.newtab_rect.right + self.padding
@@ -117,7 +118,7 @@ class Chrome:
                 self.address_rect.top,
                 self.address_bar, self.font, "black"
             ))
-            w = self.font.measure(self.address_bar)
+            w = self.font.measure(self.address_bar[:self.cursor_position]) if self.cursor_position > 0 else 0
             cmds.append(DrawLine(
                 self.address_rect.left + self.padding + w,
                 self.address_rect.top,
@@ -167,6 +168,7 @@ class Chrome:
         elif self.address_rect.contains_point(x, y):
             self.focus = "address bar"
             self.address_bar = ""
+            self.cursor_position = 0
         else:
             for i, tab in enumerate(self.browser.tabs):
                 if self.tab_rect(i).contains_point(x, y):
@@ -176,7 +178,21 @@ class Chrome:
     
     def keypress(self, char: str) -> None:
         if self.focus == "address bar":
-            self.address_bar += char
+            if self.cursor_position == len(self.address_bar):
+                self.address_bar += char
+            else:
+                ls = list(self.address_bar)
+                ls.insert(self.cursor_position, char)
+                self.address_bar = "".join(ls)
+            self.cursor_position += 1
+
+    def left(self) -> None:
+        if self.focus == "address bar":
+            self.cursor_position = max(0, self.cursor_position-1)
+
+    def right(self) -> None:
+        if self.focus == "address bar":
+            self.cursor_position = min(len(self.address_bar), self.cursor_position+1)
 
     def enter(self) -> None:
         if self.focus == "address bar":
@@ -187,8 +203,14 @@ class Chrome:
 
     def backspace(self) -> None:
         if self.focus == "address bar":
-            if self.address_bar:
-                self.address_bar = self.address_bar[:-1]
+            if self.address_bar and self.cursor_position > 0:
+                if self.cursor_position == len(self.address_bar):
+                    self.address_bar = self.address_bar[:-1]
+                else:
+                    ls = list(self.address_bar)
+                    ls.pop(self.cursor_position-1)
+                    self.address_bar = "".join(ls)
+                self.cursor_position -= 1
 
     def configure(self) -> None:
         self.bookmark_rect.left = self.browser.dimensions["width"] - self.padding - self.bookmark_width

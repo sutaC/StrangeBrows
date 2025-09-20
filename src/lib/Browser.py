@@ -26,6 +26,8 @@ class Browser:
         self.canvas.pack(fill="both", expand=1)
         self.window.bind("<Up>", self.handle_scrollup)
         self.window.bind("<Down>", self.handle_scrolldown)
+        self.window.bind("<Left>", self.handle_left)
+        self.window.bind("<Right>", self.handle_right)
         self.window.bind("<Configure>", self.handle_configure)
         self.window.bind("<Button-1>", self.handle_click)
         self.window.bind("<Button-2>", self.handle_middle_click)
@@ -99,6 +101,14 @@ class Browser:
 
     def handle_backspace(self, e: tkinter.Event) -> None:
         self.chrome.backspace()
+        self.draw()
+
+    def handle_left(self, e: tkinter.Event) -> None:
+        self.chrome.left()
+        self.draw()
+
+    def handle_right(self, e: tkinter.Event) -> None:
+        self.chrome.right()
         self.draw()
 
     def draw(self) -> None:
