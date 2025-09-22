@@ -1,6 +1,6 @@
-import os
 import sys
 import tkinter 
+import multiprocessing
 from .URL import URL
 from .Tab import Tab
 from .Chrome import Chrome
@@ -35,6 +35,7 @@ class Browser:
         self.window.bind("<Key>", self.handle_key)
         self.window.bind("<Return>", self.handle_enter)
         self.window.bind("<BackSpace>", self.handle_backspace)
+        self.window.bind("<Control-n>", self.handle_new_window)
         # System dependent
         match sys.platform:
             case 'linux':
@@ -49,6 +50,9 @@ class Browser:
         # ---
         self.chrome: Chrome = Chrome(self)
         self.dimensions["height"] -= self.chrome.bottom
+        # Multiprocessing setup
+        if not multiprocessing.get_start_method(True):
+            multiprocessing.set_start_method("spawn")
 
     def handle_scrollup(self, e: tkinter.Event) -> None:
         self.active_tab.scrollup()
@@ -132,3 +136,11 @@ class Browser:
             self.window.title("{} – StrangeBrows".format(title))
         else:
             self.window.title("StrangeBrows")
+
+    def handle_new_window(self, e: tkinter.Event) -> None:
+        p = multiprocessing.Process(target=create_new_window)
+        p.start()
+
+def create_new_window() -> None:
+    Browser().new_tab(URL(""))
+    tkinter.mainloop()
