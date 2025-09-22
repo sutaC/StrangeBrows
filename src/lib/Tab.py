@@ -193,6 +193,10 @@ class Tab:
     def clear_forward(self) -> None:
         self.forward_history.clear()
 
+    def refresh(self) -> None:
+        self.load(self.url)
+        self.history.pop()
+
     def toggle_bookmark(self) -> None:
         if self.url.storage.get_bookmark(str(self.url)):
             self.url.storage.delete_bookmark(str(self.url))

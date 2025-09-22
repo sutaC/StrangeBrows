@@ -39,6 +39,14 @@ class Chrome:
             self.back_rect.right + self.padding + forward_width,
             self.urlbar_bottom - self.padding
         )
+        # Refresh button
+        forward_width = self.font.measure("@") + 2*self.padding
+        self.refresh_rect = Rect(
+            self.forward_rect.right + self.padding,
+            self.urlbar_top + self.padding,
+            self.forward_rect.right + self.padding + forward_width,
+            self.urlbar_bottom - self.padding
+        )
         # Bookmark button
         self.bookmark_width = self.font.measure("*") + 2*self.padding
         self.bookmark_rect = Rect(
@@ -49,7 +57,7 @@ class Chrome:
         )
         # Address bar
         self.address_rect = Rect(
-            self.forward_rect.right + self.padding,
+            self.refresh_rect.right + self.padding,
             self.urlbar_top + self.padding,
             self.bookmark_rect.left - self.padding,
             self.urlbar_bottom - self.padding
@@ -92,6 +100,13 @@ class Chrome:
             self.forward_rect.left + self.padding,
             self.forward_rect.top,
             ">", self.font, "black"
+        ))
+        # Refresh button
+        cmds.append(DrawOutline(self.refresh_rect, "black", 1))
+        cmds.append(DrawText(
+            self.refresh_rect.left + self.padding,
+            self.refresh_rect.top,
+            "@", self.font, "black"
         ))
         # New tab button
         cmds.append(DrawOutline(self.newtab_rect, "black", 1))
@@ -163,6 +178,8 @@ class Chrome:
             self.browser.active_tab.go_back()
         elif self.forward_rect.contains_point(x, y):
             self.browser.active_tab.go_forward()
+        elif self.refresh_rect.contains_point(x, y):
+            self.browser.active_tab.refresh()
         elif self.bookmark_rect.contains_point(x, y):
             self.browser.active_tab.toggle_bookmark()
         elif self.address_rect.contains_point(x, y):
