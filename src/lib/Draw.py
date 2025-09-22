@@ -1,8 +1,8 @@
 import os
 import tkinter
 import tkinter.font
-from abc import ABC, abstractmethod
 from . import BASE_DIR
+from abc import ABC, abstractmethod
 
 class Rect:
     def __init__(self, left: int, top: int, right: int, bottom: int) -> None:
@@ -17,14 +17,26 @@ class Rect:
 
 class Draw(ABC):
     def __init__(self) -> None:
+        from .Layout import Layout
         self.rect: Rect
+        self.layout: Layout | None
 
     @abstractmethod
     def execute(self, scroll: int, canvas: tkinter.Canvas) -> None:
         pass
 
 class DrawText(Draw):
-    def __init__(self, x1: int, y1: int, text: str, font: tkinter.font.Font, color: str) -> None:
+    def __init__(self, 
+    x1: int, 
+    y1: int, 
+    text: str, 
+    font: tkinter.font.Font, 
+    color: str,
+    layout = None, 
+    ) -> None:
+        from .Layout import Layout
+        assert isinstance(layout, Layout | None)
+        self.layout = layout
         self.rect: Rect = Rect(
             x1, y1,
             x1 + font.measure(text),
@@ -49,7 +61,6 @@ class DrawText(Draw):
             return
         # Checks is color valid
         if not validate_color(self.color, canvas): self.color = "black"
-        # ---
         canvas.create_text(
             self.rect.left, self.rect.top - scroll,
             text=self.text,
@@ -59,14 +70,20 @@ class DrawText(Draw):
         )
 
 class DrawRect(Draw):
-    def __init__(self, rect: Rect, color: str) -> None:
+    def __init__(self, 
+    rect: Rect, 
+    color: str,
+    layout = None, 
+    ) -> None:
+        from .Layout import Layout
+        assert isinstance(layout, Layout | None)
+        self.layout = layout
         self.rect: Rect = rect
         self.color: str = color
 
     def execute(self, scroll: int, canvas: tkinter.Canvas) -> None:
         # Checks if color is valid
         if not validate_color(self.color, canvas): self.color = "white"
-        # ---
         canvas.create_rectangle(
             self.rect.left, self.rect.top - scroll,
             self.rect.right, self.rect.bottom - scroll,
@@ -75,15 +92,22 @@ class DrawRect(Draw):
         )
 
 class DrawOutline(Draw):
-    def __init__(self, rect: 'Rect', color: str, thikness: int) -> None:
-        self.rect: 'Rect' = rect
+    def __init__(self, 
+    rect: Rect, 
+    color: str, 
+    thikness: int,
+    layout = None, 
+    ) -> None:
+        from .Layout import Layout
+        assert isinstance(layout, Layout | None)
+        self.layout = layout
+        self.rect: Rect = rect
         self.color: str = color
         self.thikness: int = thikness
 
     def execute(self, scroll: int, canvas: tkinter.Canvas) -> None:
         # Checks if color is valid
         if not validate_color(self.color, canvas): self.color = "black"
-        # ---
         canvas.create_rectangle(
             self.rect.left, self.rect.top - scroll,
             self.rect.right, self.rect.bottom - scroll,
@@ -92,15 +116,25 @@ class DrawOutline(Draw):
         )
 
 class DrawLine(Draw):
-    def __init__(self, x1: int, y1: int, x2: int, y2: int, color: str, thikness: int) -> None:
-        self.rect: 'Rect' = Rect(x1, y1, x2, y2)
+    def __init__(self, 
+    x1: int, 
+    y1: int, 
+    x2: int, 
+    y2: int, 
+    color: str,  
+    thikness: int,
+    layout = None
+    ) -> None:
+        from .Layout import Layout
+        assert isinstance(layout, Layout | None)
+        self.layout = layout
+        self.rect: Rect = Rect(x1, y1, x2, y2)
         self.color: str = color
         self.thikness: int = thikness
 
     def execute(self, scroll: int, canvas: tkinter.Canvas) -> None:
         # Checks if color is valid
         if not validate_color(self.color, canvas): self.color = "black"
-        # ---
         canvas.create_line(
             self.rect.left, self.rect.top - scroll,
             self.rect.right, self.rect.bottom - scroll,

@@ -1,11 +1,11 @@
 import os
 import tkinter
 from .URL import URL
+from . import BASE_DIR
 from .Draw import Draw
 from .CSSParser import CSSParser, style, cascade_priority
 from .HTMLParser import HTMLParser, HTMLSourceParser, Element, Text
-from .DocumentLayout import Dimensions, DocumentLayout, BlockLayout, LineLayout, TextLayout
-from . import BASE_DIR
+from .Layout import Dimensions, DocumentLayout, Layout
 
 SCROLL_STEP = 100
 SCROLLBAR_OFFSET = 2
@@ -49,47 +49,43 @@ class Tab:
         self.display_list = []
         paint_tree(self.document, self.display_list)
 
-    def middle_click(self, x: int, y: int) -> URL | None:
+    def find_clicked(self, x: int, y: int) -> Element | None:
         y += self.scroll
-        objs: list[BlockLayout] = [obj for obj in tree_to_list(self.document, []) 
-            if obj.x <= x < obj.x + obj.width
-            and obj.y <= y < obj.y + obj.height
+        objs: list[Layout] = [obj.layout for obj in self.display_list
+            if obj.layout is not None
+            and obj.layout.x <= x < obj.layout.x + obj.layout.width
+            and obj.layout.y <= y < obj.layout.y + obj.layout.height
         ]
         if not objs: return
         elt: Element | Text | None = objs[-1].node if not isinstance(objs[-1].node, list) else objs[-1].node[-1]
+        assert isinstance(elt, Element | Text)
         while elt:
             if isinstance(elt, Text):
                 pass
             elif elt.tag == "a" and "href" in elt.attributes:
-                return self.url.resolve(elt.attributes["href"])
+                return elt
             elt = elt.parent
         return None
 
+    def middle_click(self, x: int, y: int) -> URL | None:
+        elt = self.find_clicked(x, y)
+        if not elt: return None
+        return self.url.resolve(elt.attributes["href"])
+
     def click(self, x: int, y: int) -> None:
-        y += self.scroll
-        objs: list[BlockLayout] = [obj for obj in tree_to_list(self.document, []) 
-            if obj.x <= x < obj.x + obj.width
-            and obj.y <= y < obj.y + obj.height
-        ]
-        if not objs: return
-        elt: Element | Text | None = objs[-1].node if not isinstance(objs[-1].node, list) else objs[-1].node[-1]
-        while elt:
-            if isinstance(elt, Text):
-                pass
-            elif elt.tag == "a" and "href" in elt.attributes:
-                href = elt.attributes["href"]
-                if href.startswith("#"): # Fragment link support
-                    self.url.fragment = href[1:]
-                    node = find_node_by_id(self.url.fragment, self.document)
-                    if node is not None: 
-                        self.scroll = node.y
-                        self.scrollmousewheel_darwin(0) # Prevents overscroll
-                else:
-                    url = self.url.resolve(href)
-                    self.clear_forward()
-                    self.load(url)
-                return
-            elt = elt.parent
+        elt = self.find_clicked(x, y)
+        if not elt: return
+        href = elt.attributes["href"]
+        if href.startswith("#"): # Fragment link support
+            self.url.fragment = href[1:]
+            node = find_node_by_id(self.url.fragment, self.document)
+            if node is not None: 
+                self.scroll = node.y
+                self.scrollmousewheel_darwin(0) # Prevents overscroll
+        else:
+            url = self.url.resolve(href)
+            self.clear_forward()
+            self.load(url)
 
     # --- Functions
     def display_height(self) -> int:
@@ -225,13 +221,13 @@ def print_tree(node, indent=0) -> None:
         print_tree(child, indent+2)
 
 def paint_tree(
-layout_object: DocumentLayout | BlockLayout | LineLayout | TextLayout, 
+layout_object: Layout, 
 display_list: list[Draw]) -> None:
     display_list.extend(layout_object.paint())
     for child in layout_object.children:
         paint_tree(child, display_list)
 
-def find_node_by_id(id: str, root: DocumentLayout) -> BlockLayout | None:
+def find_node_by_id(id: str, root: DocumentLayout) -> Layout | None:
     for layout in tree_to_list(root, []):
         if isinstance(layout.node, Element) \
         and "id" in layout.node.attributes \

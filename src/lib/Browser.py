@@ -4,7 +4,7 @@ import multiprocessing
 from .URL import URL
 from .Tab import Tab
 from .Chrome import Chrome
-from .DocumentLayout import Dimensions
+from .Layout import Dimensions
 
 class Browser:
     def __init__(self) -> None:

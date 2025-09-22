@@ -1,5 +1,5 @@
 from .URL import URL
-from .DocumentLayout import get_font
+from .Layout import get_font
 from lib.Draw import Draw, Rect, DrawRect, DrawLine, DrawOutline, DrawText 
 
 class Chrome:

@@ -1,9 +1,9 @@
-import os
 import tkinter
 import tkinter.font
-from typing import Any, Literal, TypedDict
+from abc import ABC, abstractmethod
 from .Draw import Draw, DrawText, DrawRect, Rect
 from .HTMLParser import Element, Text, HEAD_TAGS
+from typing import Any, Generic, Literal, TypeVar, TypedDict
 
 FONTS: dict[
     tuple[str, int, Literal['normal', 'bold'], Literal['roman', 'italic']], 
@@ -20,7 +20,25 @@ class Dimensions(TypedDict):
     hstep: int
     vstep: int
 
-class DocumentLayout:
+# Allows subclass to narrow node type 
+T = TypeVar("T", bound="Element | Text")
+
+class Layout(ABC, Generic[T]): 
+    def __init__(self) -> None:
+        self.node: T | list[T]
+        self.children: list
+        self.x: int
+        self.y: int
+        self.width: int
+        self.height: int
+    
+    @abstractmethod
+    def layout(self) -> None: pass
+
+    @abstractmethod
+    def paint(self) -> list[Draw]: pass
+
+class DocumentLayout(Layout):
     def __init__(self, node: Element, dimensions: Dimensions) -> None:
         self.node: Element = node
         self.parent = None
@@ -47,7 +65,7 @@ class DocumentLayout:
     def paint(self) -> list:
         return []
 
-class BlockLayout:
+class BlockLayout(Layout):
     def __init__(
             self, 
             node: Element | Text | list[Element | Text], 
@@ -176,19 +194,19 @@ class BlockLayout:
                         font = get_font("", 12, "normal", "roman")
                         y1 = self.y - self.dimensions["vstep"]
                         x2, y2 = self.x + font.measure(text), y1 + font.metrics("linespace")
-                        rect = DrawRect(Rect(self.x, y1, x2, y2), "grey")
+                        rect = DrawRect(Rect(self.x, y1, x2, y2), "grey", layout=self)
                         cmds.append(rect)
-                        cmds.append(DrawText(self.x, y1, text, font, "black"))
+                        cmds.append(DrawText(self.x, y1, text, font, "black", layout=self))
                     if "links" in self.node.attributes.get("class", "").split():
                         x2, y2 = self.x + self.width, self.y + self.height
-                        rect = DrawRect(Rect(self.x, self.y, x2, y2), "light grey")
+                        rect = DrawRect(Rect(self.x, self.y, x2, y2), "light grey", layout=self)
                         cmds.append(rect)
                 case "li":
                     x1 = self.x - self.dimensions["hstep"]
                     y1 = self.y + self.height // 2
                     size = 4
                     x2, y2 = x1 + size, y1 + size
-                    rect = DrawRect(Rect(x1, y1, x2, y2), "black") 
+                    rect = DrawRect(Rect(x1, y1, x2, y2), "black", layout=self) 
                     cmds.append(rect)
         # Author styles
         for node in self.node if isinstance(self.node, list) else [self.node]:
@@ -196,7 +214,7 @@ class BlockLayout:
             bgcolor = node.style.get("background-color", "transparent")
             if bgcolor != "transparent":
                 x2, y2 = self.x + self.width, self.y + self.height
-                rect = DrawRect(self.self_rect(), bgcolor)
+                rect = DrawRect(self.self_rect(), bgcolor, layout=self)
                 cmds.append(rect)
         return cmds
     
@@ -287,7 +305,7 @@ class BlockLayout:
         new_line = LineLayout(self.node, self, last_line) # type: ignore
         self.children.append(new_line)
 
-class LineLayout:
+class LineLayout(Layout):
     def __init__(self, \
     node: Text, \
     parent: BlockLayout, \
@@ -341,7 +359,7 @@ class LineLayout:
     def paint(self) -> list:
         return []
 
-class TextLayout:
+class TextLayout(Layout):
     def __init__(self, \
     node: Text, \
     word: str, \
@@ -392,10 +410,15 @@ class TextLayout:
 
     def paint(self) -> list[Draw]:
         color = self.node.style['color']
-        return [DrawText(self.x, self.y, self.word, self.font, color)]
+        return [DrawText(self.x, self.y, self.word, self.font, color, layout=self)]
 
 
-def get_font(family: str, size: int, weight: Literal['normal', 'bold'], style: Literal['roman', 'italic']) -> tkinter.font.Font:
+def get_font(
+family: str, 
+size: int, 
+weight: Literal['normal', 'bold'], 
+style: Literal['roman', 'italic']
+) -> tkinter.font.Font:
     key = (family, size, weight, style)
     if key not in FONTS:
         font = tkinter.font.Font(family=family, size=size, weight=weight, slant=style)
