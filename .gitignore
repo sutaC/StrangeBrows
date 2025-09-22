@@ -2,6 +2,5 @@
 __pycache__/
 build/
 dist/
-*.db
 *.spec
 !main.spec

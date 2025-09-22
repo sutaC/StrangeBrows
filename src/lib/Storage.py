@@ -1,10 +1,11 @@
-import os
 import atexit
 import sqlite3
 from time import time
-from . import BASE_DIR
+from pathlib import Path
 
-STORAGE_DIR = os.path.join(BASE_DIR, "storage.db")
+# Creates persistant storage.db
+STORAGE_DIR = Path.home() / ".StrangeBrows" / "storage.db"
+STORAGE_DIR.parent.mkdir(parents=True, exist_ok=True) 
 
 class Storage:
     def __init__(self) -> None:
