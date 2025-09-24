@@ -193,7 +193,7 @@ class Chrome:
                     self.browser.update_title()
                     break
     
-    def keypress(self, char: str) -> None:
+    def keypress(self, char: str) -> bool:
         if self.focus == "address bar":
             if self.cursor_position == len(self.address_bar):
                 self.address_bar += char
@@ -202,6 +202,8 @@ class Chrome:
                 ls.insert(self.cursor_position, char)
                 self.address_bar = "".join(ls)
             self.cursor_position += 1
+            return True
+        return False
 
     def left(self) -> None:
         if self.focus == "address bar":
@@ -233,3 +235,6 @@ class Chrome:
         self.bookmark_rect.left = self.browser.dimensions["width"] - self.padding - self.bookmark_width
         self.bookmark_rect.right = self.browser.dimensions["width"] - self.padding
         self.address_rect.right = self.bookmark_rect.left - self.padding
+    
+    def blur(self) -> None:
+        self.focus = None

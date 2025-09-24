@@ -10,26 +10,34 @@ To run StrangeBrows you will need:
 
 ## Development
 
-For development, to start project, you will need to run
+For development start project with:
 
 ```bash
-./src/main.py
-# or
 python ./src/main.py
 ```
 
 ## Build
 
-For building project uses [pyinstaller](https://pyinstaller.org/en/stable/) for building.
+For building project uses [pyinstaller](https://pyinstaller.org/en/stable/)
 
-To build run:
+To build execute:
 
 ```bash
 pyinstaller main.spec
 ```
 
-To run build project run:
+To run built project execute:
 
 ```bash
 ./dist/main
 ```
+
+## Testing with server
+
+Project comes with very simple python server for testing. To run test server execute:
+
+```bash
+python ./src/server.py
+```
+
+You can connect to this server on `https://localhost:8000/`

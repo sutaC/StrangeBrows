@@ -114,7 +114,8 @@ class URL:
         else:
             return URL(self.scheme + "://" + self.host + ":" + str(self.port) + url)
 
-    def request(self) -> str:
+    def request(self, payload: str | None = None) -> str:
+        method = "POST" if payload else "GET"
         # Base cases
         if self.url == "about:blank":
             return ""
@@ -144,9 +145,9 @@ class URL:
         elif self.scheme == "data":
             return self.content
         # Cache
-        cached_response = self.storage.get_cache(self.url)
-        if cached_response is not None:
-            return cached_response
+        if method == "GET":
+            cached_response = self.storage.get_cache(self.url)
+            if cached_response is not None: return cached_response
         # Socket
         s: socket.socket
         socket_key = (self.scheme, self.host, self.port)
@@ -170,10 +171,14 @@ class URL:
             "User-Agent": "StrangeBrows",
             "Accept-Encoding": "gzip"
         }
-        request = "GET {} HTTP/1.1\r\n".format(self.path)
+        request = "{} {} HTTP/1.1\r\n".format(method, self.path)
+        if payload:
+            length = len(payload.encode())
+            request_headers["Content-Length"] = str(length)
         for header in request_headers:
             request += "{}: {}\r\n".format(header, request_headers[header])
         request += "\r\n"
+        if payload: request += payload
         s.send(request.encode())
         response = s.makefile("rb", encoding="utf-8", newline="\r\n")
         # Status line

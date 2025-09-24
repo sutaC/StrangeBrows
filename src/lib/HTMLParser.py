@@ -26,6 +26,7 @@ class Text:
         self.children: list = []
         self.parent: 'Element' = parent
         self.style: dict[str, str] = {}
+        self.is_focused = False
         # Handles special chars
         for key in SPECIAL_CHARS:
             if key in self.text:
@@ -41,6 +42,7 @@ class Element:
         self.children: list['Element | Text'] = []
         self.parent: 'Element | None' = parent
         self.style: dict[str, str] = {}
+        self.is_focused: bool = False
 
     def __repr__(self) -> str:
         attr = " "

@@ -1,10 +1,11 @@
 import tkinter
 import tkinter.font
 from abc import ABC, abstractmethod
-from .Draw import Draw, DrawText, DrawRect, Rect
 from .HTMLParser import Element, Text, HEAD_TAGS
+from .Draw import Draw, DrawLine, DrawText, DrawRect, Rect
 from typing import Any, Generic, Literal, TypeVar, TypedDict
 
+INPUT_WIDTH_PX = 200
 FONTS: dict[
     tuple[str, int, Literal['normal', 'bold'], Literal['roman', 'italic']], 
     tuple[tkinter.font.Font, tkinter.Label]
@@ -38,6 +39,9 @@ class Layout(ABC, Generic[T]):
     @abstractmethod
     def paint(self) -> list[Draw]: pass
 
+    @abstractmethod
+    def should_paint(self) -> bool: return True
+
 class DocumentLayout(Layout):
     def __init__(self, node: Element, dimensions: Dimensions) -> None:
         self.node: Element = node
@@ -64,6 +68,13 @@ class DocumentLayout(Layout):
 
     def paint(self) -> list:
         return []
+    
+    def should_paint(self) -> bool:
+        return super().should_paint()
+
+    def self_rect(self) -> Rect:
+        return Rect(self.x, self.y, self.x + self.width, self.y + self.height)
+    
 
 class BlockLayout(Layout):
     def __init__(
@@ -217,9 +228,10 @@ class BlockLayout(Layout):
                 rect = DrawRect(self.self_rect(), bgcolor, layout=self)
                 cmds.append(rect)
         return cmds
-    
-    def self_rect(self) -> Rect:
-        return Rect(self.x, self.y, self.x + self.width, self.y + self.height)
+
+    def should_paint(self) -> bool:
+        return isinstance(self.node, Text) \
+        or (isinstance(self.node, Element) and self.node.tag not in ["input", "button"])    
 
     def recurse(self, node: Element | Text) -> None:
         if isinstance(node, Text):
@@ -234,12 +246,13 @@ class BlockLayout(Layout):
             for word in node.text.split():
                 self.word(node, word)
         else:
-            # <br> newline
             if node.tag == "br":
                 self.new_line()
-            # ---
-            for child in node.children:
-                self.recurse(child)
+            elif node.tag in ["input", "button"]:
+                self.input(node)
+            else:
+                for child in node.children:
+                    self.recurse(child)
 
     def word(self, node: Text, word: str) -> None:
         # Prop type checking
@@ -254,7 +267,7 @@ class BlockLayout(Layout):
         # ---
         family  = node.style["font-family"]
         try: size = int(float(node.style["font-size"][:-2]) * .75)
-        except: size = 16
+        except: size = 12
         # Font variant
         if node.style["font-variant"] == "small-caps": 
             if word.islower():
@@ -305,6 +318,34 @@ class BlockLayout(Layout):
         new_line = LineLayout(self.node, self, last_line) # type: ignore
         self.children.append(new_line)
 
+    def input(self, node: Element) -> None:
+        w = INPUT_WIDTH_PX
+        if self.cursor_x + w > self.width:
+            self.new_line()
+        line: LineLayout = self.children[-1]  # type: ignore
+        previous_word: TextLayout | InputLayout | None = line.children[-1] if line.children else None
+        input = InputLayout(node, line, previous_word)
+        line.children.append(input)
+                # Prop type checking
+        weight: Literal["bold", "normal"]
+        if node.style["font-weight"] in ["bold", "normal"]: weight = node.style["font-weight"] # type: ignore
+        else: weight = "normal"
+        # ---
+        style: Literal["italic", "roman"]
+        if node.style["font-style"] in ["italic", "normal"]: style = node.style["font-style"] # type: ignore
+        else: style = "roman"
+        if node.style["font-style"] == "normal": style = "roman"
+        # ---
+        family  = node.style["font-family"]
+        try: size = int(float(node.style["font-size"][:-2]) * .75)
+        except: size = 12
+        # ---
+        font = get_font(family, size, weight, style)
+        self.cursor_x += w + font.measure(" ")
+
+    def self_rect(self) -> Rect:
+        return Rect(self.x, self.y, self.x + self.width, self.y + self.height)
+
 class LineLayout(Layout):
     def __init__(self, \
     node: Text, \
@@ -313,7 +354,7 @@ class LineLayout(Layout):
         self.node: Text = node
         self.parent: BlockLayout = parent
         self.previous: 'LineLayout | None' = previous
-        self.children: list['TextLayout'] = []
+        self.children: list['TextLayout | InputLayout'] = []
         # ---
         self.x: int
         self.y: int
@@ -339,37 +380,44 @@ class LineLayout(Layout):
         text_padding = 0
         last_child = self.children[-1]
         if self.parent.text_align == "right":
-            line_end = last_child.x + last_child.font.measure(last_child.word)
+            line_end = last_child.x + last_child.width
             text_padding = self.width - line_end
         elif self.parent.text_align == "center":
-            line_end = last_child.x + last_child.font.measure(last_child.word)
+            line_end = last_child.x + last_child.width
             text_padding = (self.width - line_end) // 2
         for word in self.children:
             word.x += text_padding
         # ---
         max_ascent = max([word.font.metrics("ascent") for word in self.children])
         baseline = int(self.y + 1.25 * max_ascent)
-        for word in self.children:
-            word.y = baseline - word.font.metrics("ascent")
-            if word.node.style["vertical-align"] == "top": word.y -= word.font.metrics("ascent") # vertical-align: top
-            if "\N{soft hyphen}" in word.word: word.word = word.word.replace("\N{soft hyphen}", "") # Removes visible soft hyphen 
+        for child in self.children:
+            child.y = baseline - child.font.metrics("ascent")
+            if not isinstance(child, TextLayout): continue
+            if child.node.style["vertical-align"] == "top": child.y -= child.font.metrics("ascent") # vertical-align: top
+            if "\N{soft hyphen}" in child.word: child.word = child.word.replace("\N{soft hyphen}", "") # Removes visible soft hyphen 
         max_descent = max([word.font.metrics("descent") for word in self.children])
         self.height = int(1.25 * (max_ascent + max_descent))
 
     def paint(self) -> list:
         return []
+    
+    def should_paint(self) -> bool:
+        return super().should_paint()
+    
+    def self_rect(self) -> Rect:
+        return Rect(self.x, self.y, self.x + self.width, self.y + self.height)
 
 class TextLayout(Layout):
     def __init__(self, \
     node: Text, \
     word: str, \
     parent: LineLayout, \
-    previous: 'TextLayout | None') -> None:
+    previous: 'TextLayout | InputLayout | None') -> None:
         self.node: Text = node
         self.word: str = word
         self.parent: LineLayout = parent
-        self.previous: 'TextLayout | None' = previous
-        self.children: list['TextLayout'] = []
+        self.previous: TextLayout | InputLayout | None = previous
+        self.children: list[Layout] = []
         # ---
         self.x: int
         self.y: int
@@ -394,7 +442,7 @@ class TextLayout(Layout):
         # ---
         family  = self.node.style["font-family"]
         try: size = int(float(self.node.style["font-size"][:-2]) * .75)
-        except: size = 16
+        except: size = 12
         # Font variant 
         if self.node.style["font-variant"] == "small-caps" and self.word.islower(): 
             self.word = self.word.upper()
@@ -412,6 +460,84 @@ class TextLayout(Layout):
         color = self.node.style['color']
         return [DrawText(self.x, self.y, self.word, self.font, color, layout=self)]
 
+    def should_paint(self) -> bool:
+        return super().should_paint()
+    
+    def self_rect(self) -> Rect:
+        return Rect(self.x, self.y, self.x + self.width, self.y + self.height)
+
+class InputLayout(Layout):
+    def __init__(self, \
+    node: Element, \
+    parent: LineLayout, \
+    previous: 'TextLayout | InputLayout | None') -> None:
+        self.node: Element = node
+        self.parent: LineLayout = parent
+        self.previous: TextLayout | InputLayout | None = previous
+        self.children: list[Layout] = []
+        # ---
+        self.x: int
+        self.y: int
+        self.width: int
+        self.height: int
+
+    def __repr__(self) -> str:
+        return "TextLayout"
+    
+    def layout(self) -> None:
+        # Prop type checking
+        weight: Literal["bold", "normal"]
+        if self.node.style["font-weight"] in ["bold", "normal"]: weight = self.node.style["font-weight"] # type: ignore
+        else: weight = "normal"
+        # ---
+        style: Literal["italic", "roman"]
+        if self.node.style["font-style"] in ["italic", "normal"]: style = self.node.style["font-style"] # type: ignore
+        else: style = "roman"
+        if self.node.style["font-style"] == "normal": style = "roman"
+        # ---
+        family  = self.node.style["font-family"]
+        try: size = int(float(self.node.style["font-size"][:-2]) * .75)
+        except: size = 12
+        # Font variant 
+        if self.node.style["font-variant"] == "small-caps" and self.word.islower(): 
+            self.word = self.word.upper()
+            size = int(size * .75)
+        self.font = get_font(family, size, weight, style)
+        self.width = INPUT_WIDTH_PX
+        if self.previous:
+            space = self.previous.font.measure(" ")
+            self.x = self.previous.x + space + self.previous.width
+        else:
+            self.x = self.parent.x
+        self.height = self.font.metrics("linespace")
+
+    def paint(self) -> list[Draw]:
+        cmds: list[Draw] = []
+        bgcolor = self.node.style.get("background-color", "transparent")
+        if bgcolor != "transparent":
+            cmds.append(DrawRect(self.self_rect(), bgcolor, layout=self))
+        text = ""
+        if self.node.tag == "input":
+            text = self.node.attributes.get("value", "")
+        elif self.node.tag == "button":
+            if len(self.node.children) == 1 \
+            and isinstance(self.node.children[0], Text):
+                text = self.node.children[0].text
+            else:
+                print("Ignoring HTML contents inside button")
+                text = ""
+        if self.node.is_focused:
+            cx = self.x + self.font.measure(text)
+            cmds.append(DrawLine(cx, self.y, cx, self.y + self.height, "black", 1, layout=self))
+        color = self.node.style['color']
+        cmds.append(DrawText(self.x, self.y, text, self.font, color, layout=self))
+        return cmds
+    
+    def should_paint(self) -> bool:
+        return super().should_paint()
+
+    def self_rect(self) -> Rect:
+        return Rect(self.x, self.y, self.x + self.width, self.y + self.height)
 
 def get_font(
 family: str, 

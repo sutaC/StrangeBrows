@@ -1,5 +1,6 @@
 import os
 import tkinter
+import urllib.parse
 from .URL import URL
 from . import BASE_DIR
 from .Draw import Draw
@@ -25,6 +26,7 @@ class Tab:
         self.scroll = 0
         self.history: list[URL] = []
         self.forward_history: list[URL] = []
+        self.focus: Element | None = None
         
     # --- Event handlers
     def scrollup(self) -> None:
@@ -44,12 +46,9 @@ class Tab:
         else: self.scroll = min(self.scroll + delta, self.display_height())
 
     def configure(self) -> None:
-        self.document = DocumentLayout(self.nodes, self.dimensions)
-        self.document.layout()
-        self.display_list = []
-        paint_tree(self.document, self.display_list)
+        self.render()
 
-    def find_clicked(self, x: int, y: int) -> Element | None:
+    def middle_click(self, x: int, y: int) -> URL | None:
         y += self.scroll
         objs: list[Layout] = [obj.layout for obj in self.display_list
             if obj.layout is not None
@@ -63,29 +62,58 @@ class Tab:
             if isinstance(elt, Text):
                 pass
             elif elt.tag == "a" and "href" in elt.attributes:
-                return elt
+                return self.url.resolve(elt.attributes["href"])
             elt = elt.parent
-        return None
-
-    def middle_click(self, x: int, y: int) -> URL | None:
-        elt = self.find_clicked(x, y)
-        if not elt: return None
-        return self.url.resolve(elt.attributes["href"])
+        return None     
 
     def click(self, x: int, y: int) -> None:
-        elt = self.find_clicked(x, y)
-        if not elt: return
-        href = elt.attributes["href"]
-        if href.startswith("#"): # Fragment link support
-            self.url.fragment = href[1:]
-            node = find_node_by_id(self.url.fragment, self.document)
-            if node is not None: 
-                self.scroll = node.y
-                self.scrollmousewheel_darwin(0) # Prevents overscroll
-        else:
-            url = self.url.resolve(href)
-            self.clear_forward()
-            self.load(url)
+        y += self.scroll
+        objs: list[Layout] = [obj.layout for obj in self.display_list
+            if obj.layout is not None
+            and obj.layout.x <= x < obj.layout.x + obj.layout.width
+            and obj.layout.y <= y < obj.layout.y + obj.layout.height
+        ]
+        if not objs: return
+        elt: Element | Text | None = objs[-1].node if not isinstance(objs[-1].node, list) else objs[-1].node[-1]
+        assert isinstance(elt, Element | Text)
+        if self.focus:
+            self.focus.is_focused = False
+        self.focus = None
+        while elt:
+            if isinstance(elt, Text):
+                pass
+            elif elt.tag == "a" and "href" in elt.attributes:
+                href = elt.attributes["href"]
+                if href.startswith("#"): # Fragment link support
+                    self.url.fragment = href[1:]
+                    node = find_node_by_id(self.url.fragment, self.document)
+                    if node is not None: 
+                        self.scroll = node.y
+                        self.scrollmousewheel_darwin(0) # Prevents overscroll
+                else:
+                    url = self.url.resolve(href)
+                    self.clear_forward()
+                    self.load(url)
+                return
+            elif elt.tag == "input":
+                elt.attributes["value"] = ""
+                self.focus = elt
+                elt.is_focused = True
+                self.render()
+                return
+            elif elt.tag == "button":
+                while elt:
+                    if elt.tag == "form" and "action" in elt.attributes:
+                        return self.submit_form(elt)
+                    elt = elt.parent
+                if not elt: break
+            elt = elt.parent
+        self.render()
+
+    def keypress(self, char: str) -> None:
+        if self.focus:
+            self.focus.attributes["value"] += char
+            self.render()
 
     # --- Functions
     def display_height(self) -> int:
@@ -111,17 +139,33 @@ class Tab:
                 width=0
             )
 
-    def load(self, url: URL) -> None:
+    def submit_form(self, elt: Element) -> None:
+        inputs = [node for node in tree_to_list(elt, [])
+            if isinstance(node, Element)
+            and node.tag == "input"
+            and "name" in node.attributes]
+        body = ""
+        for input in inputs:
+            name = input.attributes["name"]
+            name = urllib.parse.quote(name)
+            value = input.attributes.get("value", "")
+            value = urllib.parse.quote(value)
+            body += "&" + name + "=" + value
+        body = body[1:]
+        url  = self.url.resolve(elt.attributes["action"])
+        self.load(url, body)
+
+    def load(self, url: URL, payload: str | None = None) -> None:
         self.scroll = 0
         self.history.append(url)
         self.url = url
         self.url.storage.add_history(str(self.url))
-        body = self.url.request()
+        body = self.url.request(payload)
         if self.url.view_source:
             self.nodes = HTMLSourceParser(body).source()
         else:
             self.nodes = HTMLParser(body).parse()
-        rules = DEFAULT_STYLE_SHEET.copy()
+        self.rules = DEFAULT_STYLE_SHEET.copy()
         sheets: list[Element] = []
         # Populating nodes
         for node in tree_to_list(self.nodes, []):
@@ -154,17 +198,20 @@ class Tab:
                 for child in node.children:
                     if isinstance(child, Text):
                         body += child.text
-            rules.extend(CSSParser(body).parse())
-        # Styling
-        style(self.nodes, sorted(rules, key=cascade_priority))
-        self.document = DocumentLayout(self.nodes, self.dimensions)
-        self.document.layout()
+            self.rules.extend(CSSParser(body).parse())
+        # Rendering
+        self.render()
         # Fragment handling
         if self.url.fragment:
             node = find_node_by_id(self.url.fragment, self.document)
             if node is not None: 
                 self.scroll = node.y
                 self.scrollmousewheel_darwin(0) # Prevents overscroll
+
+    def render(self) -> None:
+        style(self.nodes, sorted(self.rules, key=cascade_priority))
+        self.document = DocumentLayout(self.nodes, self.dimensions)
+        self.document.layout()
         self.display_list = []
         paint_tree(self.document, self.display_list)
 
@@ -223,7 +270,8 @@ def print_tree(node, indent=0) -> None:
 def paint_tree(
 layout_object: Layout, 
 display_list: list[Draw]) -> None:
-    display_list.extend(layout_object.paint())
+    if layout_object.should_paint():
+        display_list.extend(layout_object.paint())
     for child in layout_object.children:
         paint_tree(child, display_list)
 

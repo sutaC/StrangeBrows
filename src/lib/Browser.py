@@ -50,6 +50,7 @@ class Browser:
         # ---
         self.chrome: Chrome = Chrome(self)
         self.dimensions["height"] -= self.chrome.bottom
+        self.focus: str | None = None
         # Multiprocessing setup
         if not multiprocessing.get_start_method(True):
             multiprocessing.set_start_method("spawn")
@@ -81,8 +82,11 @@ class Browser:
 
     def handle_click(self, e: tkinter.Event) -> None:
         if e.y < self.chrome.bottom:
+            self.focus = None
             self.chrome.click(e.x, e.y)
         else:
+            self.focus = "content"
+            self.chrome.blur()
             tab_y = e.y - self.chrome.bottom
             self.active_tab.click(e.x, tab_y)
         self.draw()
@@ -97,8 +101,11 @@ class Browser:
     def handle_key(self, e: tkinter.Event) -> None:
         if len(e.char) == 0: return
         if not (0x20 <= ord(e.char) < 0x7f): return
-        self.chrome.keypress(e.char)
-        self.draw()
+        if self.chrome.keypress(e.char):
+            self.draw()
+        elif self.focus == "content":
+            self.active_tab.keypress(e.char)
+            self.draw()
 
     def handle_enter(self, e: tkinter.Event) -> None:
         self.chrome.enter()
