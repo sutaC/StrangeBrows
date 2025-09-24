@@ -169,6 +169,9 @@ class Tab:
             body += "&" + name + "=" + value
         body = body[1:]
         url  = self.url.resolve(elt.attributes["action"])
+        if elt.attributes.get("method", "GET").upper() != "POST":  # Default GET method
+            url.path += "?" + body
+            body = None
         self.load(url, body)
 
     def load(self, url: URL, payload: str | None = None) -> None:
