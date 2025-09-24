@@ -115,6 +115,22 @@ class Tab:
             self.focus.attributes["value"] += char
             self.render()
 
+    def enter(self) -> None:
+        if self.focus and self.focus.tag == "input": 
+            elt = self.focus
+            while elt:
+                if elt.tag == "form" and "action" in elt.attributes:
+                    return self.submit_form(elt)
+                elt = elt.parent
+
+    def backspace(self) -> None:
+        if self.focus and self.focus.tag == "input":
+            text = self.focus.attributes.get("value")
+            if not text: return
+            text = text[:-1]
+            self.focus.attributes["value"] = text
+            self.render()
+
     # --- Functions
     def display_height(self) -> int:
         h = self.document.height - self.dimensions["height"] + self.dimensions["vstep"] * 2
@@ -156,6 +172,8 @@ class Tab:
         self.load(url, body)
 
     def load(self, url: URL, payload: str | None = None) -> None:
+        if self.focus: self.focus.is_focused = False
+        self.focus = None
         self.scroll = 0
         self.history.append(url)
         self.url = url

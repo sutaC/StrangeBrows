@@ -213,14 +213,16 @@ class Chrome:
         if self.focus == "address bar":
             self.cursor_position = min(len(self.address_bar), self.cursor_position+1)
 
-    def enter(self) -> None:
+    def enter(self) -> bool:
         if self.focus == "address bar":
             self.browser.active_tab.load(URL(self.address_bar))
             self.browser.update_title()
             self.browser.active_tab.clear_forward()
             self.focus = None
+            return True
+        return False
 
-    def backspace(self) -> None:
+    def backspace(self) -> bool:
         if self.focus == "address bar":
             if self.address_bar and self.cursor_position > 0:
                 if self.cursor_position == len(self.address_bar):
@@ -230,6 +232,8 @@ class Chrome:
                     ls.pop(self.cursor_position-1)
                     self.address_bar = "".join(ls)
                 self.cursor_position -= 1
+            return True
+        return False
 
     def configure(self) -> None:
         self.bookmark_rect.left = self.browser.dimensions["width"] - self.padding - self.bookmark_width

@@ -108,12 +108,18 @@ class Browser:
             self.draw()
 
     def handle_enter(self, e: tkinter.Event) -> None:
-        self.chrome.enter()
-        self.draw()
+        if self.chrome.enter():
+            self.draw()
+        elif self.focus == "content":
+            self.active_tab.enter()
+            self.draw()
 
     def handle_backspace(self, e: tkinter.Event) -> None:
-        self.chrome.backspace()
-        self.draw()
+        if self.chrome.backspace():
+            self.draw()
+        elif self.focus == "content":
+            self.active_tab.backspace()
+            self.draw()
 
     def handle_left(self, e: tkinter.Event) -> None:
         self.chrome.left()

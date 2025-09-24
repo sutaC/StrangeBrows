@@ -241,5 +241,8 @@ class URL:
                     age = int(response_headers["age"])
                     assert age >= 0
                 expires = int(time()) + max_age - age
-                self.storage.add_cache(self.url, expires, content)
+                if self.storage.get_cache(self.url):
+                    self.storage.update_cache(self.url, expires, content)
+                else:
+                    self.storage.add_cache(self.url, expires, content)
         return content
