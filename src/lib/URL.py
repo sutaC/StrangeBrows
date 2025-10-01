@@ -1,14 +1,14 @@
-import os
 import atexit
 import gzip
 import socket
 import ssl
 from time import time
+from pathlib import Path
 from .Storage import Storage
 from . import BASE_DIR
 
-DEFAULT_PAGE_URL = "file://" + os.path.join(BASE_DIR, "assets", "html", "home.html")
-BOOKMARKS_PAGE_DIR = os.path.join(BASE_DIR, "assets", "html", "bookmarks.html")
+DEFAULT_PAGE_PATH = Path(BASE_DIR) / "assets" / "html" / "home.html"
+BOOKMARKS_PAGE_PATH = Path(BASE_DIR) / "assets" / "html" / "bookmarks.html"
 REDIRECT_LIMIT = 20
 
 class URL:
@@ -23,14 +23,17 @@ class URL:
         self.host: str = ""
         self.path: str = ""
         self.port: int = 0
-        self.fragment = None
-        self.view_source: bool
+        self.fragment: str | None = None
+        self.view_source: bool = False
         # data scheme specific
         self.content: str = ""
         self.type: str = ""
+        # Cleanup
+        atexit.register(self.cleanup)
         # Parsing
         if not url:
-            url = DEFAULT_PAGE_URL
+            self.is_valid = False
+            return
         try:
             self.view_source = url.startswith("view-source:")
             if self.view_source:
@@ -70,9 +73,10 @@ class URL:
             self.port = 443
             self.path = "/lite?p={}".format(query)
             self.fragment = None
-        atexit.register(self.cleanup)
 
     def __str__(self) -> str:
+        if not self.url:
+            return ""
         if self.url.startswith("about:"):
             return self.url
         if self.scheme == "file":
@@ -96,7 +100,7 @@ class URL:
             s.close()
 
     def resolve(self, url: str) -> 'URL':
-        if url.startswith(("about:", "data:", "file://")):
+        if (not url) or url.startswith(("about:", "data:", "file://")):
             return URL(url)
         if url.startswith("#"):
             return URL(self.scheme + "://" + self.host + ":" + str(self.port) + self.path + url)
@@ -117,19 +121,30 @@ class URL:
     def request(self, payload: str | None = None) -> str:
         method = "POST" if payload else "GET"
         # Base cases
-        if self.url == "about:blank":
+        if not self.url:
+            content = ""
+            try: 
+                file = open(DEFAULT_PAGE_PATH, "r")
+                content = file.read()
+                file.close()
+            except:
+                return "<h1>404 Not Found</h1>"
+            return content
+        elif self.url == "about:blank":
             return ""
         elif self.url == "about:bookmarks":
             content = ""
             try:
-                file = open(BOOKMARKS_PAGE_DIR, "r")
+                file = open(BOOKMARKS_PAGE_PATH, "r")
                 content = file.read()
                 file.close() 
             except:
-                content = "<h1>404 Not Found</h1>"
-            bookmarks = ['<li><a href="{}">{}</a></li>'.format(url, url)
-                for url, _ in self.storage.get_all_bookmarks()
-            ]
+                return "<h1>404 Not Found</h1>"
+            bookmarks = []
+            for url, _ in self.storage.get_all_bookmarks():
+                title = url 
+                if not title: title = "(Home page)" 
+                bookmarks.append('<li><a href="{}">{}</a></li>'.format(url, title))
             x_bookmarks = "<ul>{}</ul>".format("".join(bookmarks)) if bookmarks else '<small class="empty">There are no bookmarks!</small>'
             content = content.replace("<x-bookmarks>", x_bookmarks)
             return content
@@ -140,7 +155,7 @@ class URL:
                 content = file.read()
                 file.close()
             except:
-                content = "<h1>404 Not Found</h1>"
+                return "<h1>404 Not Found</h1>"
             return content
         elif self.scheme == "data":
             return self.content

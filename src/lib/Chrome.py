@@ -1,6 +1,6 @@
 from .URL import URL
 from .Layout import get_font
-from lib.Draw import Draw, Rect, DrawRect, DrawLine, DrawOutline, DrawText 
+from .Draw import Draw, Rect, DrawRect, DrawLine, DrawOutline, DrawText 
 
 class Chrome:
     def __init__(self, browser) -> None:

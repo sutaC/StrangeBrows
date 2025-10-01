@@ -4,12 +4,12 @@ from time import time
 from pathlib import Path
 
 # Creates persistant storage.db
-STORAGE_DIR = Path.home() / ".StrangeBrows" / "storage.db"
-STORAGE_DIR.parent.mkdir(parents=True, exist_ok=True) 
+STORAGE_PATH = Path.home() / ".StrangeBrows" / "storage.db"
+STORAGE_PATH.parent.mkdir(parents=True, exist_ok=True) 
 
 class Storage:
     def __init__(self) -> None:
-        self.con = sqlite3.connect(STORAGE_DIR)
+        self.con = sqlite3.connect(STORAGE_PATH)
         cursor = self.con.cursor()
         cursor.execute('''
             CREATE TABLE IF NOT EXISTS history (

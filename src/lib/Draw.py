@@ -1,8 +1,10 @@
-import os
 import tkinter
 import tkinter.font
 from . import BASE_DIR
+from pathlib import Path
 from abc import ABC, abstractmethod
+
+EMOJIS_PATH = Path(BASE_DIR) / "assets" / "emojis"
 
 class Rect:
     def __init__(self, left: int, top: int, right: int, bottom: int) -> None:
@@ -50,9 +52,9 @@ class DrawText(Draw):
         self.image: tkinter.PhotoImage | None = None
         if len(text) == 1 and not text.isalnum() and not text.isascii():
             code = hex(ord(self.text))[2:].upper()
-            image_path = os.path.join(BASE_DIR, 'assets', 'emojis', "{}.png".format(code))
-            if os.path.isfile(image_path):
-                self.image = tkinter.PhotoImage(file=image_path)
+            path = EMOJIS_PATH / "{}.png".format(code)
+            if path.is_file():
+                self.image = tkinter.PhotoImage(file=path)
 
     def execute(self, scroll: int, canvas: tkinter.Canvas) -> None:
         # Draws emojis

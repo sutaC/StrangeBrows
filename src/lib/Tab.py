@@ -1,9 +1,9 @@
-import os
 import tkinter
 import urllib.parse
 from .URL import URL
 from . import BASE_DIR
 from .Draw import Draw
+from pathlib import Path
 from .CSSParser import CSSParser, style, cascade_priority
 from .HTMLParser import HTMLParser, HTMLSourceParser, Element, Text
 from .Layout import Dimensions, DocumentLayout, Layout
@@ -12,8 +12,9 @@ SCROLL_STEP = 100
 SCROLLBAR_OFFSET = 2
 
 # Default style sheets
+DEFAULT_STYLE_SHEET_PATH = Path(BASE_DIR) / "assets" / "browser.css"
 ss: str = "" 
-try: ss = open(os.path.join(BASE_DIR, "assets", "browser.css")).read()
+try: ss = open(DEFAULT_STYLE_SHEET_PATH).read()
 except: print("Could not find default style sheets file")
 DEFAULT_STYLE_SHEET = CSSParser(ss).parse()
 
