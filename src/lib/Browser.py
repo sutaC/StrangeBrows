@@ -137,7 +137,7 @@ class Browser:
             cmd.execute(0, self.canvas)
     
     def new_tab(self, url: URL) -> None:
-        new_tab = Tab(self.dimensions)
+        new_tab = Tab(self.window, self.dimensions)
         new_tab.load(url)
         self.active_tab = new_tab
         self.tabs.append(new_tab)

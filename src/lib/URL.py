@@ -19,6 +19,8 @@ class URL:
         self.saved_sockets: dict[tuple[str, str, int], socket.socket] = {}
         self.url: str = url
         # base values
+        self.method: str = "GET"
+        self.payload: str | None = None
         self.scheme: str = ""
         self.host: str = ""
         self.path: str = ""
@@ -119,7 +121,8 @@ class URL:
             return URL(self.scheme + "://" + self.host + ":" + str(self.port) + url)
 
     def request(self, payload: str | None = None) -> str:
-        method = "POST" if payload else "GET"
+        self.method = "POST" if payload else "GET"
+        self.payload = payload
         # Base cases
         if not self.url:
             content = ""
@@ -160,7 +163,7 @@ class URL:
         elif self.scheme == "data":
             return self.content
         # Cache
-        if method == "GET":
+        if self.method == "GET":
             cached_response = self.storage.get_cache(self.url)
             if cached_response is not None: return cached_response
         # Socket
@@ -186,14 +189,14 @@ class URL:
             "User-Agent": "StrangeBrows",
             "Accept-Encoding": "gzip"
         }
-        request = "{} {} HTTP/1.1\r\n".format(method, self.path)
-        if payload:
-            length = len(payload.encode())
+        request = "{} {} HTTP/1.1\r\n".format(self.method, self.path)
+        if self.payload:
+            length = len(self.payload.encode())
             request_headers["Content-Length"] = str(length)
         for header in request_headers:
             request += "{}: {}\r\n".format(header, request_headers[header])
         request += "\r\n"
-        if payload: request += payload
+        if self.payload: request += self.payload
         s.send(request.encode())
         response = s.makefile("rb", encoding="utf-8", newline="\r\n")
         # Status line
@@ -201,6 +204,9 @@ class URL:
         try:
             version, status, explenation = statusline.split(" ", 2)
         except:
+            if socket_key in self.saved_sockets:
+                self.saved_sockets.pop(socket_key)
+                return self.request(self.payload)
             print("Recived invalid response from '{}'...".format(self.url))
             return ""
         status = int(status)

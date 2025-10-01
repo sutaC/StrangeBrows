@@ -1,4 +1,5 @@
 import tkinter
+import tkinter.messagebox
 import urllib.parse
 from .URL import URL
 from . import BASE_DIR
@@ -19,7 +20,8 @@ except: print("Could not find default style sheets file")
 DEFAULT_STYLE_SHEET = CSSParser(ss).parse()
 
 class Tab:
-    def __init__(self, dimesnions: Dimensions) -> None:
+    def __init__(self, window: tkinter.Tk, dimesnions: Dimensions) -> None:
+        self.window: tkinter.Tk = window
         self.url: URL
         self.dimensions: Dimensions = dimesnions
         self.images: list[tkinter.PhotoImage] = []
@@ -263,14 +265,44 @@ class Tab:
         return bool(self.forward_history)
 
     def go_back(self) -> None:
-        if self.can_back():
+        if not self.can_back(): return
+        # Resubmitting form alert
+        if self.history[-2].method == "POST":
+            box = tkinter.messagebox.Message(
+                master=self.window,
+                title="Alert",
+                type=tkinter.messagebox.YESNO,
+                icon=tkinter.messagebox.WARNING,
+                message="Are you sure you want to resubmit form?"
+            )
+            action = box.show()
+            if action == "no": return
+            forward = self.history.pop()
+            self.forward_history.append(forward)
+            back = self.history.pop()
+            self.load(back, back.payload)
+        else:
             forward = self.history.pop()
             self.forward_history.append(forward)
             back = self.history.pop()
             self.load(back)
 
     def go_forward(self) -> None:
-        if self.can_forward():
+        if not self.can_forward(): return
+        # Resubmitting form alert
+        if self.forward_history[-1].method == "POST":
+            box = tkinter.messagebox.Message(
+                master=self.window,
+                title="Alert",
+                type=tkinter.messagebox.YESNO,
+                icon=tkinter.messagebox.WARNING,
+                message="Are you sure you want to resubmit form?"
+            )
+            action = box.show()
+            if action == "no": return
+            forward = self.forward_history.pop()
+            self.load(forward, forward.payload)
+        else:
             forward = self.forward_history.pop()
             self.load(forward)
 

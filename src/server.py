@@ -81,9 +81,13 @@ def main() -> None:
     port = 8000
     s.bind(('', port))
     s.listen()
-    print("Listening on http://127.0.0.1:{}".format(port))
+    print("[INFO]: Listening on http://127.0.0.1:{}".format(port))
     while True:
-        conx, addr = s.accept()
+        try:
+            conx, addr = s.accept()
+        except KeyboardInterrupt:
+            print("[INFO]: Closing...")
+            break
         try:
             handle_connection(conx)
         except Exception as e:

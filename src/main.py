@@ -9,7 +9,8 @@ def main() -> None:
     parser.add_argument("url", type=str, help="Url to visit", nargs="?", default="")
     args = parser.parse_args()
     Browser().new_tab(URL(args.url))
-    tkinter.mainloop()
+    try: tkinter.mainloop()
+    except KeyboardInterrupt: pass
 
 if __name__ == "__main__":
     from multiprocessing import freeze_support
