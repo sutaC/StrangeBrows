@@ -96,9 +96,15 @@ class Tab:
                     self.load(url)
                 return
             elif elt.tag == "input":
-                elt.attributes["value"] = ""
-                self.focus = elt
-                elt.is_focused = True
+                if elt.attributes.get("type") == "checkbox":
+                    if "checked" in elt.attributes: 
+                        elt.attributes.pop("checked")
+                    else: 
+                        elt.attributes["checked"] = ""
+                else:
+                    elt.attributes["value"] = ""
+                    self.focus = elt
+                    elt.is_focused = True
                 self.render()
                 return
             elif elt.tag == "button":
@@ -162,10 +168,18 @@ class Tab:
             and "name" in node.attributes]
         body = ""
         for input in inputs:
+            # Type dependant
+            type = input.attributes.get("type")
+            if type == "checkbox" and "checked" not in input.attributes:
+                continue
+            # Name
             name = input.attributes["name"]
             name = urllib.parse.quote(name)
+            # Value
             value = input.attributes.get("value", "")
+            if not value and type == "checkbox": value = "on" 
             value = urllib.parse.quote(value)
+            # ---
             body += "&" + name + "=" + value
         body = body[1:]
         url  = self.url.resolve(elt.attributes["action"])

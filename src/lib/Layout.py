@@ -2,10 +2,11 @@ import tkinter
 import tkinter.font
 from abc import ABC, abstractmethod
 from .HTMLParser import Element, Text, HEAD_TAGS
-from .Draw import Draw, DrawLine, DrawText, DrawRect, Rect
+from .Draw import Draw, DrawLine, DrawText, DrawRect, DrawOutline, Rect
 from typing import Any, Generic, Literal, TypeVar, TypedDict
 
 INPUT_WIDTH_PX = 200
+CHECKBOX_WIDTH_PX = 20
 FONTS: dict[
     tuple[str, int, Literal['normal', 'bold'], Literal['roman', 'italic']], 
     tuple[tkinter.font.Font, tkinter.Label]
@@ -475,6 +476,10 @@ class InputLayout(Layout):
         self.parent: LineLayout = parent
         self.previous: TextLayout | InputLayout | None = previous
         self.children: list[Layout] = []
+        # Support only for types: input, checkbox, button
+        self.type = self.node.attributes.get("type", "input")
+        if self.node.tag == "button": self.type = "button"
+        elif self.type != "checkbox": self.type = "input"
         # ---
         self.x: int
         self.y: int
@@ -482,28 +487,31 @@ class InputLayout(Layout):
         self.height: int
 
     def __repr__(self) -> str:
-        return "TextLayout"
+        return "InputLayout ({})".format(self.type)
     
     def layout(self) -> None:
-        # Prop type checking
-        weight: Literal["bold", "normal"]
-        if self.node.style["font-weight"] in ["bold", "normal"]: weight = self.node.style["font-weight"] # type: ignore
-        else: weight = "normal"
-        # ---
-        style: Literal["italic", "roman"]
-        if self.node.style["font-style"] in ["italic", "normal"]: style = self.node.style["font-style"] # type: ignore
-        else: style = "roman"
-        if self.node.style["font-style"] == "normal": style = "roman"
-        # ---
-        family  = self.node.style["font-family"]
-        try: size = int(float(self.node.style["font-size"][:-2]) * .75)
-        except: size = 12
-        # Font variant 
-        if self.node.style["font-variant"] == "small-caps" and self.word.islower(): 
-            self.word = self.word.upper()
-            size = int(size * .75)
-        self.font = get_font(family, size, weight, style)
-        self.width = INPUT_WIDTH_PX
+        # Type dependant
+        if self.type == "checkbox":
+            self.font = get_font("", 12, "normal", "roman")
+            self.width = CHECKBOX_WIDTH_PX
+        else:
+            # Prop type checking
+            weight: Literal["bold", "normal"]
+            if self.node.style["font-weight"] in ["bold", "normal"]: weight = self.node.style["font-weight"] # type: ignore
+            else: weight = "normal"
+            # ---
+            style: Literal["italic", "roman"]
+            if self.node.style["font-style"] in ["italic", "normal"]: style = self.node.style["font-style"] # type: ignore
+            else: style = "roman"
+            if self.node.style["font-style"] == "normal": style = "roman"
+            # ---
+            family  = self.node.style["font-family"]
+            try: size = int(float(self.node.style["font-size"][:-2]) * .75)
+            except: size = 12
+            self.font = get_font(family, size, weight, style)
+            self.width = INPUT_WIDTH_PX
+       
+        # Sizes
         if self.previous:
             space = self.previous.font.measure(" ")
             self.x = self.previous.x + space + self.previous.width
@@ -516,21 +524,28 @@ class InputLayout(Layout):
         bgcolor = self.node.style.get("background-color", "transparent")
         if bgcolor != "transparent":
             cmds.append(DrawRect(self.self_rect(), bgcolor, layout=self))
-        text = ""
-        if self.node.tag == "input":
-            text = self.node.attributes.get("value", "")
-        elif self.node.tag == "button":
+        # Type dependant
+        if self.type == "input":
+            text = self.node.attributes.get("value", "")                
+            if self.node.is_focused:
+                cx = self.x + self.font.measure(text)
+                cmds.append(DrawLine(cx, self.y, cx, self.y + self.height, "black", 1, layout=self))
+            color = self.node.style['color']
+            cmds.append(DrawText(self.x, self.y, text, self.font, color, layout=self))
+        elif self.type == "button":
             if len(self.node.children) == 1 \
             and isinstance(self.node.children[0], Text):
                 text = self.node.children[0].text
             else:
                 print("Ignoring HTML contents inside button")
                 text = ""
-        if self.node.is_focused:
-            cx = self.x + self.font.measure(text)
-            cmds.append(DrawLine(cx, self.y, cx, self.y + self.height, "black", 1, layout=self))
-        color = self.node.style['color']
-        cmds.append(DrawText(self.x, self.y, text, self.font, color, layout=self))
+            color = self.node.style['color']
+            cmds.append(DrawText(self.x, self.y, text, self.font, color, layout=self))
+        elif self.type == "checkbox":
+            cmds.append(DrawRect(self.self_rect(), "lightgray", layout=self))
+            cmds.append(DrawOutline(self.self_rect(), "black", 1, layout=self))
+            if "checked" in self.node.attributes:
+                cmds.append(DrawText(self.x, self.y, " ✓", self.font, "black", layout=self))
         return cmds
     
     def should_paint(self) -> bool:
