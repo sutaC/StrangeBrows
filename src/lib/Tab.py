@@ -77,8 +77,7 @@ class Tab:
         if not objs: return
         elt: Element | Text | None = objs[-1].node if not isinstance(objs[-1].node, list) else objs[-1].node[-1]
         assert isinstance(elt, Element | Text)
-        if self.focus:
-            self.focus.is_focused = False
+        if self.focus: self.focus.is_focused = False
         self.focus = None
         while elt:
             if isinstance(elt, Text):
@@ -236,6 +235,12 @@ class Tab:
         self.document.layout()
         self.display_list = []
         paint_tree(self.document, self.display_list)
+
+    def blur(self) -> None:
+        if not self.focus: return
+        self.focus.is_focused = False
+        self.focus = None
+        self.render()
 
     def can_back(self) -> bool:
         return len(self.history) > 1 

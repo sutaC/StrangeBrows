@@ -83,6 +83,7 @@ class Browser:
     def handle_click(self, e: tkinter.Event) -> None:
         if e.y < self.chrome.bottom:
             self.focus = None
+            self.active_tab.blur()
             self.chrome.click(e.x, e.y)
         else:
             self.focus = "content"
