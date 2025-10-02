@@ -2,8 +2,88 @@
 import re
 import socket
 import urllib.parse
+import sqlite3
+from pathlib import Path
+from argparse import ArgumentParser
 
-TOPICS: dict[str, list[str]] = {"Guest book": ['Pavel was here']}
+DATABSE_PATH = Path(__file__).parent.parent / "server.db"
+
+class Databse:
+    def __init__(self) -> None:
+        self.con = sqlite3.connect(DATABSE_PATH)
+
+    def initialize(self) -> None:
+        c = self.con.cursor()
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS topics (
+                id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                title VARCHAR(255) NOT NULL UNIQUE
+            )       
+        ''')
+        c.execute('''
+            CREATE TABLE IF NOT EXISTS comments (
+                id INTEGER NOT NULL PRIMARY KEY AUTOINCREMENT,
+                content VARCHAR(255) NOT NULL,
+                topic_id INTEGER NOT NULL,
+                FOREIGN KEY(topic_id) REFERENCES topics(id)
+            )       
+        ''')
+        self.con.commit()
+        c.close()
+
+    def get_all_topics(self) -> list[str]:
+        c = self.con.cursor()
+        c.execute("SELECT title FROM topics;")
+        fetch: list[tuple[str]] = c.fetchall()
+        c.close()
+        data: list[str] = [x[0] for x in fetch]
+        return data
+    
+    def has_topic(self, topic: str) -> bool:
+        c = self.con.cursor()
+        c.execute("SELECT id FROM topics WHERE title = ?;", [topic])
+        fetch: tuple[int] | None = c.fetchone()
+        c.close()
+        return fetch is not None
+    
+    def add_topic(self, topic: str) -> None:
+        c = self.con.cursor()
+        c.execute("INSERT INTO topics (title) VALUES (?);", [topic])
+        self.con.commit()
+        c.close()
+    
+    def get_all_comments(self, topic: str) -> list[str]:
+        c = self.con.cursor()
+        c.execute('''
+            SELECT c.content 
+            FROM comments AS c
+            JOIN topics AS t ON c.topic_id = t.id
+            WHERE t.title = ?;
+        ''', [topic])
+        fetch: list[tuple[str]] = c.fetchall()
+        data: list[str] = [x[0] for x in fetch]
+        c.close()
+        return data
+
+    def add_comment(self, topic: str, comment: str) -> None:
+        c = self.con.cursor()
+        c.execute("SELECT id FROM topics WHERE title = ?;", [topic])
+        fetch: tuple[int] | None = c.fetchone()
+        tid: int | None = fetch[0] if fetch is not None else None
+        if tid is None: raise Exception("Topic '{}' doesn't exist".format(topic))
+        c.execute("INSERT INTO comments (content, topic_id) VALUES (?, ?);", [comment, tid])
+        self.con.commit()
+        c.close()
+
+    def clear(self) -> None:
+        c = self.con.cursor()
+        c.execute("DELETE FROM topics;")
+        c.execute("DELETE FROM comments;")
+        self.con.commit()
+        c.close()
+
+    def close(self) -> None:
+        self.con.close()
 
 def show_topics() -> str:
     out = "<!doctype html>"
@@ -13,13 +93,20 @@ def show_topics() -> str:
     out += "<p><button>Add topic</button></p>"
     out += "</form>"
     out += "<h2>Topics</h2>"
-    for topic in TOPICS.keys():
+    db = Databse()
+    topics = db.get_all_topics()
+    db.close()
+    for topic in topics:
         parsed = urllib.parse.quote(topic)
         out += '<p><a href="/topic/{}">{}</a></p>'.format(parsed, topic)
     return out
 
 def show_comments(topic: str) -> str:
-    if topic not in TOPICS: return ""
+    db = Databse()
+    has_topic = db.has_topic(topic)
+    if not has_topic: 
+        db.close()
+        return ""
     parsed = urllib.parse.quote(topic)
     out = "<!doctype html>"
     out += "<h1>" + topic + "</h1>"
@@ -28,7 +115,9 @@ def show_comments(topic: str) -> str:
     out += "<p><input name=comment required></p>"
     out += "<p><button>Add comment</button></p>"
     out += "</form>"
-    for entry in TOPICS[topic]:
+    comments = db.get_all_comments(topic)
+    db.close()
+    for entry in comments:
         out += "<p>" + entry + "</p>"
     return out
 
@@ -43,21 +132,30 @@ def form_decode(body: str | None) -> dict[str, str]:
     return params
 
 def add_topic(params: dict[str, str]) -> str:
-    if 'topic' in params:
-        topic = params['topic']
-        if not topic: return show_topics()
-        if topic in TOPICS: return show_comments(topic)
-        TOPICS[topic] = []
+    if 'topic' not in params or not params["topic"]: 
+        return show_topics()
+    topic = params['topic']
+    db = Databse()
+    has_topic = db.has_topic(topic)
+    if has_topic: 
+        db.close()
         return show_comments(topic)
-    return show_topics()
+    db.add_topic(topic)
+    db.close()
+    return show_comments(topic)
+    
 
 def add_entry(topic: str, params: dict[str, str]) -> str:
-    if topic not in TOPICS: return ""
-    if 'comment' in params:
-        if not params["comment"]: return show_comments(topic)
-        TOPICS[topic].append(params["comment"])
-    else:
+    db = Databse()
+    has_topic = db.has_topic(topic)
+    if not has_topic: 
+        db.close()        
+        return ""
+    if 'comment' not in params or not params["comment"]:
+        db.close()
         return show_topics()
+    db.add_comment(topic, params["comment"])
+    db.close()
     return show_comments(topic)
 
 def not_found(url: str, method: str) -> str:
@@ -82,13 +180,19 @@ body: str | None
     elif method == "GET" and re.match(r"^\/topic\/[\w,%,+]+$", url): # /topic/[name]
         topic = url.removeprefix("/topic/")
         topic = urllib.parse.unquote_plus(topic)
-        if topic not in TOPICS: print(topic, TOPICS); return "404 Not Found", not_found(url, method)
+        db = Databse()
+        has_topic = db.has_topic(topic)
+        db.close()
+        if not has_topic: return "404 Not Found", not_found(url, method)
         return "200 OK", show_comments(topic)
     elif method == "POST" and re.match(r"^\/topic\/[\w,%,+]+\/add$", url): # /topic/[name]/add
         params = form_decode(body)
         topic = url.removeprefix("/topic/").removesuffix("/add")
         topic = urllib.parse.unquote_plus(topic)
-        if topic not in TOPICS: return "404 Not Found", not_found(url, method) 
+        db = Databse()
+        has_topic = db.has_topic(topic)
+        db.close()
+        if not has_topic: return "404 Not Found", not_found(url, method) 
         return "200 OK", add_entry(topic, params)
     else:
         return "404 Not Found", not_found(url, method)
@@ -117,6 +221,19 @@ def handle_connection(conx: socket.socket) -> None:
     conx.close()
 
 def main() -> None:
+    # Db init
+    db = Databse()
+    db.initialize()
+    # Handling options
+    parser = ArgumentParser("HTTP server for testing")
+    parser.add_argument("-c", "--clear", action="store_true", help="clear server database")
+    args = parser.parse_args()
+    if args.clear:
+        print("[INFO]: Clearing server database")
+        db.clear()
+    # ---
+    db.close()
+    # Handling Connections
     s = socket.socket(
         family=socket.AF_INET,
         type=socket.SOCK_STREAM,
@@ -132,7 +249,7 @@ def main() -> None:
         try:
             handle_connection(conx)
         except Exception as e:
-            print("Error ocurred: {}".format(e))
+            print("[ERROR]: {}".format(e))
             conx.close()
 
 if __name__ == "__main__":
