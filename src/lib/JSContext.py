@@ -24,6 +24,7 @@ class JSContext:
         self.interp.export_function("createElement", self.createElement)
         self.interp.export_function("appendChild", self.appendChild)
         self.interp.export_function("insertBefore", self.insertBefore)
+        self.interp.export_function("removeChild", self.removeChild)
         self.interp.export_function("innerHTML_set", self.innerHTML_set)
         self.interp.export_function("children_get", self.children_get)
         self.interp.export_function("toString", self.toString)
@@ -74,6 +75,15 @@ class JSContext:
         insert.parent = parent
         parent.children.insert(idx, insert)
         self.tab.render()
+
+    def removeChild(self, h_parent: int, h_child: int) -> int | None:
+        child = self.handle_to_node[h_child]
+        parent = self.handle_to_node[h_parent]
+        if child not in parent.children: return None
+        parent.children.remove(child)
+        child.parent = None
+        self.tab.render()
+        return h_child
 
     def innerHTML_set(self, handle: int, s: str) -> None:
         doc = HTMLParser("<html><body>" + s + "</body></html>").parse()

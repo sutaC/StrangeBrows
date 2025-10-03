@@ -37,6 +37,11 @@ Node.prototype.appendChild = function (child) {
 Node.prototype.insertBefore = function (elt) {
     call_python("insertBefore", this.handle, elt.handle);
 };
+Node.prototype.removeChild = function (child) {
+    child = call_python("removeChild", this.handle, child.handle);
+    if (child == null) return null;
+    return new Node(child);
+};
 Object.defineProperty(Node.prototype, "innerHTML", {
     set: function (s) {
         call_python("innerHTML_set", this.handle, s.toString());

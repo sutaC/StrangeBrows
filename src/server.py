@@ -91,7 +91,6 @@ class Databse:
 def show_topics() -> str:
     out = "<!doctype html>"
     out += '<link rel="stylesheet" href="/comment.css">'
-    out += '<script src="/comment.js"></script>'
     out += "<h1>Message board</h1>"
     out += "<form action=add method=post>"
     out += "<p><input name=topic required></p>"
@@ -105,6 +104,7 @@ def show_topics() -> str:
     for topic in topics:
         parsed = urllib.parse.quote(topic)
         out += '<p><a href="/topic/{}">{}</a></p>'.format(parsed, topic)
+    out += '<script src="/comment.js"></script>'
     return out
 
 def show_comments(topic: str) -> str:
@@ -116,7 +116,6 @@ def show_comments(topic: str) -> str:
     parsed = urllib.parse.quote(topic)
     out = "<!doctype html>"
     out += '<link rel="stylesheet" href="/comment.css">'
-    out += '<script src="/comment.js"></script>'
     out += "<h1>" + topic + "</h1>"
     out += '<a href="/">Home</a>'
     out += '<form action="/topic/' + parsed + '/add" method=post>'
@@ -128,6 +127,7 @@ def show_comments(topic: str) -> str:
     db.close()
     for entry in comments:
         out += "<p>" + entry + "</p>"
+    out += '<script src="/comment.js"></script>'
     return out
 
 def form_decode(body: str | None) -> dict[str, str]:
