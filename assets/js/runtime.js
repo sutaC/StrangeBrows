@@ -28,19 +28,26 @@ Node.prototype.dispatchEvent = function (evt) {
     }
     return evt.do_default;
 };
+Node.prototype.toString = function () {
+    return call_python("toString", this.handle);
+};
+Node.prototype.appendChild = function (child) {
+    call_python("appendChild", this.handle, child.handle);
+};
+Node.prototype.insertBefore = function (elt) {
+    call_python("insertBefore", this.handle, elt.handle);
+};
 Object.defineProperty(Node.prototype, "innerHTML", {
     set: function (s) {
         call_python("innerHTML_set", this.handle, s.toString());
     },
 });
 Object.defineProperty(Node.prototype, "children", {
-    get: function (s) {
+    get: function () {
         handles = call_python("children_get", this.handle);
-        children = [];
-        for (var i = 0; i < handles.length; i++) {
-            children.push(new Node(handles[i]));
-        }
-        return children;
+        return handles.map(function (h) {
+            return new Node(h);
+        });
     },
 });
 
@@ -50,6 +57,10 @@ document = {
         return handles.map(function (h) {
             return new Node(h);
         });
+    },
+    createElement: function (tagName) {
+        var handle = call_python("createElement", tagName);
+        return new Node(handle);
     },
 };
 

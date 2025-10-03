@@ -21,8 +21,12 @@ class JSContext:
         self.interp.export_function("log", print)
         self.interp.export_function("querySelectorAll", self.querySelectorAll)
         self.interp.export_function("getAttribute", self.getAttribute)
+        self.interp.export_function("createElement", self.createElement)
+        self.interp.export_function("appendChild", self.appendChild)
+        self.interp.export_function("insertBefore", self.insertBefore)
         self.interp.export_function("innerHTML_set", self.innerHTML_set)
         self.interp.export_function("children_get", self.children_get)
+        self.interp.export_function("toString", self.toString)
         self.interp.evaljs(RUNTIME_JS)
     
     def run(self, script: str, code: str) -> Any | None:
@@ -40,11 +44,36 @@ class JSContext:
         ]
         return [self.get_handle(node) for node in nodes]
 
-    
     def getAttribute(self, handle: int, attr: str) -> str: 
         elt = self.handle_to_node[handle]
         val = elt.attributes.get(attr)
         return val if val else ""
+
+    def createElement(self, tagName: str) -> int:
+        elt = Element(tagName, {}, None)
+        handle = self.get_handle(elt)
+        return handle
+
+    def appendChild(self, h_parent: int, h_child: int) -> None:
+        parent = self.handle_to_node[h_parent]
+        child = self.handle_to_node[h_child]
+        if child.parent:
+            child.parent.children.remove(child)
+        child.parent = parent
+        parent.children.append(child)
+        self.tab.render()
+
+    def insertBefore(self, h_elt: int, h_insert: int) -> None:
+        elt = self.handle_to_node[h_elt]
+        insert = self.handle_to_node[h_insert]
+        parent = elt.parent
+        if not parent: return
+        idx = parent.children.index(elt)
+        if insert.parent:
+            insert.parent.children.remove(insert)
+        insert.parent = parent
+        parent.children.insert(idx, insert)
+        self.tab.render()
 
     def innerHTML_set(self, handle: int, s: str) -> None:
         doc = HTMLParser("<html><body>" + s + "</body></html>").parse()
@@ -62,6 +91,10 @@ class JSContext:
             if isinstance(ch, Element)
         ]
         return children
+    
+    def toString(self, handle: int) -> str:
+        elt = self.handle_to_node[handle]
+        return elt.__repr__()
 
     def get_handle(self, elt: Element) -> int:
         if elt not in self.node_to_handle:
