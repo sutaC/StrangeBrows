@@ -476,10 +476,10 @@ class InputLayout(Layout):
         self.parent: LineLayout = parent
         self.previous: TextLayout | InputLayout | None = previous
         self.children: list[Layout] = []
-        # Support only for types: input, checkbox, button
-        self.type = self.node.attributes.get("type", "input")
+        # Support only for types: text, checkbox, button
+        self.type = self.node.attributes.get("type", "text")
         if self.node.tag == "button": self.type = "button"
-        elif self.type != "checkbox": self.type = "input"
+        elif self.type != "checkbox": self.type = "text"
         # ---
         self.x: int
         self.y: int
@@ -525,7 +525,7 @@ class InputLayout(Layout):
         if bgcolor != "transparent":
             cmds.append(DrawRect(self.self_rect(), bgcolor, layout=self))
         # Type dependant
-        if self.type == "input":
+        if self.type == "text":
             text = self.node.attributes.get("value", "")                
             if self.node.is_focused:
                 cx = self.x + self.font.measure(text)

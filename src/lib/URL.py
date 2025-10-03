@@ -108,7 +108,7 @@ class URL:
             return URL(self.scheme + "://" + self.host + ":" + str(self.port) + self.path + url)
         if "://" in  url: return URL(url)
         if url.startswith("./"): url = url.removeprefix("./")
-        if not url.startswith("/"):
+        if not url.startswith("/") and "/" in self.path:
             dir, _ = self.path.rsplit("/", 1)
             while url.startswith("../"):
                 _, url = url.rsplit("/", 1)

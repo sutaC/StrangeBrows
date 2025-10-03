@@ -5,6 +5,7 @@ from .URL import URL
 from . import BASE_DIR
 from .Draw import Draw
 from pathlib import Path
+from .JSContext import JSContext
 from .CSSParser import CSSParser, style, cascade_priority
 from .HTMLParser import HTMLParser, HTMLSourceParser, Element, Text
 from .Layout import Dimensions, DocumentLayout, Layout
@@ -13,7 +14,7 @@ SCROLL_STEP = 100
 SCROLLBAR_OFFSET = 2
 
 # Default style sheets
-DEFAULT_STYLE_SHEET_PATH = Path(BASE_DIR) / "assets" / "browser.css"
+DEFAULT_STYLE_SHEET_PATH = Path(BASE_DIR) / "assets" / "css" /  "browser.css"
 ss: str = "" 
 try: ss = open(DEFAULT_STYLE_SHEET_PATH).read()
 except: print("Could not find default style sheets file")
@@ -23,6 +24,7 @@ class Tab:
     def __init__(self, window: tkinter.Tk, dimesnions: Dimensions) -> None:
         self.window: tkinter.Tk = window
         self.url: URL
+        self.js: JSContext
         self.dimensions: Dimensions = dimesnions
         self.images: list[tkinter.PhotoImage] = []
         self.display_list: list[Draw] = []
@@ -85,6 +87,7 @@ class Tab:
             if isinstance(elt, Text):
                 pass
             elif elt.tag == "a" and "href" in elt.attributes:
+                if self.js.dispatch_event("click", elt): return
                 href = elt.attributes["href"]
                 if href.startswith("#"): # Fragment link support
                     self.url.fragment = href[1:]
@@ -98,6 +101,7 @@ class Tab:
                     self.load(url)
                 return
             elif elt.tag == "input":
+                if self.js.dispatch_event("click", elt): return
                 if elt.attributes.get("type") == "checkbox":
                     if "checked" in elt.attributes: 
                         elt.attributes.pop("checked")
@@ -110,6 +114,7 @@ class Tab:
                 self.render()
                 return
             elif elt.tag == "button":
+                if self.js.dispatch_event("click", elt): return
                 while elt:
                     if elt.tag == "form" and "action" in elt.attributes:
                         return self.submit_form(elt)
@@ -120,11 +125,13 @@ class Tab:
 
     def keypress(self, char: str) -> None:
         if self.focus:
+            if self.js.dispatch_event("keydown", self.focus): return
             self.focus.attributes["value"] += char
             self.render()
 
     def enter(self) -> None:
         if self.focus and self.focus.tag == "input": 
+            if self.js.dispatch_event("keydown", self.focus): return
             elt = self.focus
             while elt:
                 if elt.tag == "form" and "action" in elt.attributes:
@@ -133,6 +140,7 @@ class Tab:
 
     def backspace(self) -> None:
         if self.focus and self.focus.tag == "input":
+            if self.js.dispatch_event("keydown", self.focus): return
             text = self.focus.attributes.get("value")
             if not text: return
             text = text[:-1]
@@ -188,6 +196,7 @@ class Tab:
         if elt.attributes.get("method", "GET").upper() != "POST":  # Default GET method
             url.path += "?" + body
             body = None
+        if self.js.dispatch_event("submit", elt): return
         self.load(url, body)
 
     def load(self, url: URL, payload: str | None = None) -> None:
@@ -204,7 +213,8 @@ class Tab:
             self.nodes = HTMLParser(body).parse()
         self.rules = DEFAULT_STYLE_SHEET.copy()
         sheets: list[Element] = []
-        # Populating nodes
+        scripts: list[str] = []
+        # Travesing nodes
         for node in tree_to_list(self.nodes, []):
             # Gathering style sheets
             if (isinstance(node, Element) \
@@ -214,6 +224,11 @@ class Tab:
             or (isinstance(node, Element) \
             and node.tag == "style"):
                 sheets.append(node)
+            # Gathering scripts
+            if isinstance(node, Element) \
+            and node.tag == "script" \
+            and "src" in node.attributes:
+                scripts.append(node.attributes["src"])
             # Propagating :visited on <a> tags
             if isinstance(node, Element) \
             and node.tag == "a" \
@@ -223,6 +238,13 @@ class Tab:
                     node.attributes["visited"] = ""
                 elif "visited" in node.attributes: 
                     node.attributes.pop("visited")
+        # Executing JavaScript
+        self.js = JSContext(self)
+        for script in scripts:
+            script_url = url.resolve(script)
+            try: body = script_url.request()
+            except: continue
+            self.js.run(script, body)
         # Parsing style sheets
         for node in sheets:
             body = ""

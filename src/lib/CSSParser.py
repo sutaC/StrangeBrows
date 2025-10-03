@@ -200,7 +200,7 @@ class CSSParser:
                 return (self.s[start:self.i], self.s[self.i])
             else:
                 self.i += 1
-        raise Exception("Parsing error")
+        return (self.s[start:self.i], "")
 
     def ignore_until(self, chars: list[str]) -> str | None:
         while self.i < len(self.s):

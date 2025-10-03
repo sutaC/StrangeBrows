@@ -7,6 +7,7 @@ Simple web browser build from scratch in python, with help of this amazing web b
 To run StrangeBrows you will need:
 
 -   [tkinter](https://docs.python.org/3/library/tkinter.html) - for creating windows
+-   [DukPy](https://github.com/amol-/dukpy) - for JavaScript execution
 
 ## Development
 

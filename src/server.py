@@ -6,7 +6,10 @@ import sqlite3
 from pathlib import Path
 from argparse import ArgumentParser
 
-DATABSE_PATH = Path(__file__).parent.parent / "server.db"
+BASE_PATH = Path(__file__).parent.parent
+DATABSE_PATH = BASE_PATH / "server.db"
+COMMENT_JS_PATH = BASE_PATH / "assets" / "js" / "comment.js"
+COMMENT_CSS_PATH = BASE_PATH / "assets" / "css" / "comment.css"
 
 class Databse:
     def __init__(self) -> None:
@@ -87,11 +90,14 @@ class Databse:
 
 def show_topics() -> str:
     out = "<!doctype html>"
+    out += '<link rel="stylesheet" href="/comment.css">'
+    out += '<script src="/comment.js"></script>'
     out += "<h1>Message board</h1>"
     out += "<form action=add method=post>"
     out += "<p><input name=topic required></p>"
     out += "<p><button>Add topic</button></p>"
     out += "</form>"
+    out += "<strong></strong>"
     out += "<h2>Topics</h2>"
     db = Databse()
     topics = db.get_all_topics()
@@ -109,12 +115,15 @@ def show_comments(topic: str) -> str:
         return ""
     parsed = urllib.parse.quote(topic)
     out = "<!doctype html>"
+    out += '<link rel="stylesheet" href="/comment.css">'
+    out += '<script src="/comment.js"></script>'
     out += "<h1>" + topic + "</h1>"
     out += '<a href="/">Home</a>'
     out += '<form action="/topic/' + parsed + '/add" method=post>'
     out += "<p><input name=comment required></p>"
     out += "<p><button>Add comment</button></p>"
     out += "</form>"
+    out += "<strong></strong>"
     comments = db.get_all_comments(topic)
     db.close()
     for entry in comments:
@@ -132,9 +141,9 @@ def form_decode(body: str | None) -> dict[str, str]:
     return params
 
 def add_topic(params: dict[str, str]) -> str:
-    if 'topic' not in params or not params["topic"]: 
-        return show_topics()
+    if 'topic' not in params or not params["topic"]: return show_topics()
     topic = params['topic']
+    if len(topic) > 100: return show_comments(topic) 
     db = Databse()
     has_topic = db.has_topic(topic)
     if has_topic: 
@@ -146,6 +155,7 @@ def add_topic(params: dict[str, str]) -> str:
     
 
 def add_entry(topic: str, params: dict[str, str]) -> str:
+    if 'comment' in params and len(params["comment"]) > 100: return show_comments(topic) 
     db = Databse()
     has_topic = db.has_topic(topic)
     if not has_topic: 
@@ -174,6 +184,12 @@ body: str | None
     # Routes
     if method == "GET" and url == "/": # /
         return "200 OK", show_topics()
+    elif method == "GET" and url == "/comment.js":
+        with open(COMMENT_JS_PATH) as f:
+            return "200 OK", f.read()
+    elif method == "GET" and url == "/comment.css":
+        with open(COMMENT_CSS_PATH) as f:
+            return "200 OK", f.read()
     elif method == "POST" and url == "/add": # /add
         params = form_decode(body)
         return "200 OK", add_topic(params)
