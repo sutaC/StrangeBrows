@@ -9,6 +9,8 @@ RUNTIME_JS_PATH = Path(BASE_DIR) / "assets" / "js"  / "runtime.js"
 RUNTIME_JS = open(RUNTIME_JS_PATH).read()
 
 EVENT_DISPATCH_JS = "new Node(dukpy.handle).dispatchEvent(new Event(dukpy.type))"
+ADD_ID_VAR_JS = "globalThis[dukpy.id] = new Node(dukpy.handle)" 
+REMOVE_ID_VAR_JS = "delete globalThis[dukpy.id]"
 
 class JSContext:
     def __init__(self, tab) -> None:
@@ -18,6 +20,7 @@ class JSContext:
         self.interp: dukpy.JSInterpreter = dukpy.JSInterpreter()
         self.node_to_handle: dict[Element, int] = {}
         self.handle_to_node: dict[int, Element] = {}
+        # Exports functions
         self.interp.export_function("log", print)
         self.interp.export_function("querySelectorAll", self.querySelectorAll)
         self.interp.export_function("getAttribute", self.getAttribute)
@@ -28,7 +31,10 @@ class JSContext:
         self.interp.export_function("innerHTML_set", self.innerHTML_set)
         self.interp.export_function("children_get", self.children_get)
         self.interp.export_function("toString", self.toString)
+        # Add runtime
         self.interp.evaljs(RUNTIME_JS)
+        # Propragates id variables
+        self.add_tree_id(self.tab.nodes)
     
     def run(self, script: str, code: str) -> Any | None:
         try:
@@ -62,6 +68,7 @@ class JSContext:
             child.parent.children.remove(child)
         child.parent = parent
         parent.children.append(child)
+        self.add_tree_id(child)
         self.tab.render()
 
     def insertBefore(self, h_elt: int, h_insert: int) -> None:
@@ -74,6 +81,7 @@ class JSContext:
             insert.parent.children.remove(insert)
         insert.parent = parent
         parent.children.insert(idx, insert)
+        self.add_tree_id(insert)
         self.tab.render()
 
     def removeChild(self, h_parent: int, h_child: int) -> int | None:
@@ -82,6 +90,7 @@ class JSContext:
         if child not in parent.children: return None
         parent.children.remove(child)
         child.parent = None
+        self.remove_tree_id(child)
         self.tab.render()
         return h_child
 
@@ -89,8 +98,16 @@ class JSContext:
         doc = HTMLParser("<html><body>" + s + "</body></html>").parse()
         new_nodes = doc.children[0].children
         elt = self.handle_to_node[handle]
-        elt.children = new_nodes
+        # Removes old id references
         for child in elt.children:
+            if isinstance(child, Element):
+                self.remove_tree_id(child)
+            child.parent = None
+        elt.children = new_nodes
+        # Adds new id references
+        for child in elt.children:
+            if isinstance(child, Element):
+                self.add_tree_id(child)
             child.parent = elt
         self.tab.render()
 
@@ -119,3 +136,26 @@ class JSContext:
         handle: int = self.node_to_handle.get(elt, -1)
         do_default = self.interp.evaljs(EVENT_DISPATCH_JS, type=type, handle=handle)
         return not do_default
+
+    def add_id_var(self, node: Element) -> None:
+        if "id" not in node.attributes: return
+        id = node.attributes["id"]
+        handle = self.get_handle(node)
+        self.interp.evaljs(ADD_ID_VAR_JS, id=id, handle=handle)
+
+    def remove_id_var(self, node: Element) -> None:
+        if "id" not in node.attributes: return
+        id = node.attributes["id"]
+        self.interp.evaljs(REMOVE_ID_VAR_JS, id=id)
+    
+    def add_tree_id(self, node: Element) -> None:
+        self.add_id_var(node)
+        for child in node.children:
+            if isinstance(child, Element):
+                self.add_tree_id(child)
+
+    def remove_tree_id(self, node: Element) -> None:
+        self.remove_id_var(node)
+        for child in node.children:
+            if isinstance(child, Element):
+                self.remove_tree_id(child)

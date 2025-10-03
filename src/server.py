@@ -265,8 +265,13 @@ def main() -> None:
         try:
             handle_connection(conx)
         except Exception as e:
+            import traceback
             print("[ERROR]: {}".format(e))
+            traceback.print_exc()
             conx.close()
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        print("[INFO]: KeyboardInterrupt detected, exiting...")

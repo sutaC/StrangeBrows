@@ -24,7 +24,7 @@ class Text:
     def __init__(self, text: str, parent: 'Element') -> None:
         self.text: str = text
         self.children: list = []
-        self.parent: 'Element' = parent
+        self.parent: 'Element | None' = parent
         self.style: dict[str, str] = {}
         self.is_focused = False
         # Handles special chars
