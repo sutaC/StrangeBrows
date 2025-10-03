@@ -22,6 +22,7 @@ class JSContext:
         self.interp.export_function("querySelectorAll", self.querySelectorAll)
         self.interp.export_function("getAttribute", self.getAttribute)
         self.interp.export_function("innerHTML_set", self.innerHTML_set)
+        self.interp.export_function("children_get", self.children_get)
         self.interp.evaljs(RUNTIME_JS)
     
     def run(self, script: str, code: str) -> Any | None:
@@ -53,6 +54,14 @@ class JSContext:
         for child in elt.children:
             child.parent = elt
         self.tab.render()
+
+    def children_get(self, handle: int) -> list[int]:
+        node = self.handle_to_node[handle]
+        children = [
+            self.get_handle(ch) for ch in node.children
+            if isinstance(ch, Element)
+        ]
+        return children
 
     def get_handle(self, elt: Element) -> int:
         if elt not in self.node_to_handle:

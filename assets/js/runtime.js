@@ -33,6 +33,16 @@ Object.defineProperty(Node.prototype, "innerHTML", {
         call_python("innerHTML_set", this.handle, s.toString());
     },
 });
+Object.defineProperty(Node.prototype, "children", {
+    get: function (s) {
+        handles = call_python("children_get", this.handle);
+        children = [];
+        for (var i = 0; i < handles.length; i++) {
+            children.push(new Node(handles[i]));
+        }
+        return children;
+    },
+});
 
 document = {
     querySelectorAll: function (s) {

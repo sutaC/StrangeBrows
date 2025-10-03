@@ -2,7 +2,10 @@ h1 {
     font-weight: bold;
     font-size: 150%;
 }
-
+h2 {
+    font-weight: bold;
+    font-size: 125%;
+}
 strong {
     font-weight: bold;
     color: red;
