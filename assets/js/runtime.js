@@ -26,6 +26,9 @@ Node.prototype.dispatchEvent = function (evt) {
     for (var i = 0; i < list.length; i++) {
         list[i].call(this, evt);
     }
+    if (evt.do_propagate && this.parentNode) {
+        return this.parentNode.dispatchEvent(evt);
+    }
     return evt.do_default;
 };
 Node.prototype.toString = function () {
@@ -38,7 +41,7 @@ Node.prototype.insertBefore = function (elt) {
     call_python("insertBefore", this.handle, elt.handle);
 };
 Node.prototype.removeChild = function (child) {
-    child = call_python("removeChild", this.handle, child.handle);
+    var child = call_python("removeChild", this.handle, child.handle);
     if (child == null) return null;
     return new Node(child);
 };
@@ -49,10 +52,19 @@ Object.defineProperty(Node.prototype, "innerHTML", {
 });
 Object.defineProperty(Node.prototype, "children", {
     get: function () {
-        handles = call_python("children_get", this.handle);
+        var handles = call_python("children_get", this.handle);
         return handles.map(function (h) {
             return new Node(h);
         });
+    },
+});
+Object.defineProperty(Node.prototype, "parentNode", {
+    get: function () {
+        var handle = call_python("parentNode_get", this.handle);
+        if (handle == null) {
+            return null;
+        }
+        return new Node(handle);
     },
 });
 
@@ -72,7 +84,11 @@ document = {
 function Event(type) {
     this.type = type;
     this.do_default = true;
+    this.do_propagate = true;
 }
 Event.prototype.preventDefault = function () {
     this.do_default = false;
+};
+Event.prototype.stopPropagation = function () {
+    this.do_propagate = false;
 };

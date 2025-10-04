@@ -30,6 +30,7 @@ class JSContext:
         self.interp.export_function("removeChild", self.removeChild)
         self.interp.export_function("innerHTML_set", self.innerHTML_set)
         self.interp.export_function("children_get", self.children_get)
+        self.interp.export_function("parentNode_get", self.parentNode_get)
         self.interp.export_function("toString", self.toString)
         # Add runtime
         self.interp.evaljs(RUNTIME_JS)
@@ -118,6 +119,11 @@ class JSContext:
             if isinstance(ch, Element)
         ]
         return children
+    
+    def parentNode_get(self, handle: int) -> int | None:
+        node = self.handle_to_node[handle]
+        if node.parent is None: return None
+        return  self.get_handle(node.parent)
     
     def toString(self, handle: int) -> str:
         elt = self.handle_to_node[handle]
