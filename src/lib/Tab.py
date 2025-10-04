@@ -206,58 +206,19 @@ class Tab:
         self.history.append(url)
         self.url = url
         self.url.storage.add_history(str(self.url))
+        # Body parsing
         body = self.url.request(payload)
         if self.url.view_source:
             self.nodes = HTMLSourceParser(body).source()
         else:
             self.nodes = HTMLParser(body).parse()
-        self.rules = DEFAULT_STYLE_SHEET.copy()
-        sheets: list[Element] = []
-        scripts: list[str] = []
-        # Travesing nodes
-        for node in tree_to_list(self.nodes, []):
-            # Gathering style sheets
-            if (isinstance(node, Element) \
-            and node.tag == "link" \
-            and node.attributes.get("rel") == "stylesheet" \
-            and "href" in node.attributes) \
-            or (isinstance(node, Element) \
-            and node.tag == "style"):
-                sheets.append(node)
-            # Gathering scripts
-            if isinstance(node, Element) \
-            and node.tag == "script" \
-            and "src" in node.attributes:
-                scripts.append(node.attributes["src"])
-            # Propagating :visited on <a> tags
-            if isinstance(node, Element) \
-            and node.tag == "a" \
-            and "href" in node.attributes:
-                url = self.url.resolve(node.attributes["href"])
-                if url.is_valid and url.storage.get_history(str(url)):
-                    node.attributes["visited"] = ""
-                elif "visited" in node.attributes: 
-                    node.attributes.pop("visited")
+        # Propagating attributes    
+        self.propagate_attributes(self.nodes)        
         # Executing JavaScript
         self.js = JSContext(self)
-        for script in scripts:
-            script_url = url.resolve(script)
-            try: body = script_url.request()
-            except: continue
-            self.js.run(script, body)
+        self.load_scripts(self.nodes)
         # Parsing style sheets
-        for node in sheets:
-            body = ""
-            if node.tag == "link":
-                style_url = url.resolve(node.attributes["href"])
-                if not style_url.is_valid: continue
-                try: body = style_url.request()
-                except: continue
-            elif node.tag == "style":
-                for child in node.children:
-                    if isinstance(child, Text):
-                        body += child.text
-            self.rules.extend(CSSParser(body).parse())
+        self.load_sheets()
         # Rendering
         self.render()
         # Fragment handling
@@ -279,6 +240,58 @@ class Tab:
         self.focus.is_focused = False
         self.focus = None
         self.render()
+
+    def propagate_attributes(self, nodes: Element | Text) -> None:
+        if isinstance(nodes, Text): return
+        for node in tree_to_list(nodes, []):
+            if isinstance(node, Text): continue
+            # Propagating :visited on <a> tags
+            if isinstance(node, Element) \
+            and node.tag == "a" \
+            and "href" in node.attributes:
+                url = self.url.resolve(node.attributes["href"])
+                if url.is_valid and url.storage.get_history(str(url)):
+                    node.attributes["visited"] = ""
+                elif "visited" in node.attributes: 
+                    node.attributes.pop("visited")
+
+    def load_scripts(self, nodes: Element | Text) -> None:
+        if isinstance(nodes, Text): return
+        scripts: list[str] = [
+            node.attributes["src"] for node in tree_to_list(nodes, []) 
+            if isinstance(node, Element)
+            and node.tag == "script"
+            and "src" in node.attributes
+        ]
+        for script in scripts:
+            script_url = self.url.resolve(script)
+            try: body = script_url.request()
+            except: continue
+            self.js.run(script, body)
+
+    def load_sheets(self) -> None:
+        self.rules = DEFAULT_STYLE_SHEET.copy()
+        sheets: list[Element] = [
+            node for node in tree_to_list(self.nodes, [])
+            if isinstance(node, Element) 
+            and ((node.tag == "link" 
+                    and node.attributes.get("rel") == "stylesheet" 
+                    and "href" in node.attributes
+                ) or (node.tag == "style")
+        )]
+        for sheet in sheets:
+            body = ""
+            if sheet.tag == "link":
+                style_url = self.url.resolve(sheet.attributes["href"])
+                if not style_url.is_valid: continue
+                try: body = style_url.request()
+                except: continue
+            elif sheet.tag == "style":
+                for child in sheet.children:
+                    if isinstance(child, Text):
+                        body += child.text
+            
+            self.rules.extend(CSSParser(body).parse())
 
     def can_back(self) -> bool:
         return len(self.history) > 1 

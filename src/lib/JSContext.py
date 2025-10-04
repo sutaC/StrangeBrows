@@ -85,6 +85,8 @@ class JSContext:
         child.parent = parent
         parent.children.append(child)
         self.add_tree_id(child)
+        # Loads new content
+        self.load_new_content([child])
         self.tab.render()
 
     def insertBefore(self, h_elt: int, h_insert: int) -> None:
@@ -98,6 +100,8 @@ class JSContext:
         insert.parent = parent
         parent.children.insert(idx, insert)
         self.add_tree_id(insert)
+        # Loads new content
+        self.load_new_content([insert])
         self.tab.render()
 
     def removeChild(self, h_parent: int, h_child: int) -> int | None:
@@ -107,6 +111,7 @@ class JSContext:
         parent.children.remove(child)
         child.parent = None
         self.remove_tree_id(child)
+        self.remove_old_content([child])
         self.tab.render()
         return h_child
 
@@ -125,12 +130,15 @@ class JSContext:
             if isinstance(child, Element):
                 self.remove_tree_id(child)
             child.parent = None
+        self.remove_old_content(elt.children)
         elt.children = new_nodes
         # Adds new references
         for child in elt.children:
             if isinstance(child, Element):
                 self.add_tree_id(child)
             child.parent = elt
+        # Loads new content
+        self.load_new_content(new_nodes)
         self.tab.render()
 
     def outerHTML_get(self, handle: int) -> str:
@@ -155,6 +163,8 @@ class JSContext:
         # Removing old node
         h_parent = self.get_handle(elt.parent)
         self.removeChild(h_parent, handle)
+        # Loads new content
+        self.load_new_content(new_nodes)
         self.tab.render()
 
     def children_get(self, handle: int) -> list[int]:
@@ -189,6 +199,7 @@ class JSContext:
 
     def dispatch_event(self, type: str, elt: Element) -> bool:
         handle: int = self.node_to_handle.get(elt, -1)
+        if handle < 0: return False
         do_default = self.interp.evaljs(EVENT_DISPATCH_JS, type=type, handle=handle)
         return not do_default
 
@@ -224,3 +235,39 @@ class JSContext:
         for child in node.children:
             if isinstance(child, Element):
                 self.remove_tree_id(child)
+
+    def load_new_content(self, new_nodes: list[Element | Text]) -> None:
+        from .Tab import tree_to_list
+        # Load new content
+        for node in new_nodes:
+            self.tab.propagate_attributes(node)
+            self.tab.load_scripts(node)
+        # Check for new sheets
+        has_sheets = False
+        for node in new_nodes:
+            for n in tree_to_list(node, []):
+                if isinstance(n, Element) \
+                and ((n.tag == "link" \
+                and n.attributes.get("rel") == "stylesheet" \
+                and "href" in n.attributes \
+                ) or (n.tag == "style")):
+                    has_sheets = True
+                    break
+        if has_sheets:
+            self.tab.load_sheets()
+
+    def remove_old_content(self, old_nodes: list[Element | Text]) -> None:
+        from .Tab import tree_to_list
+        # Check for old sheets
+        has_sheets = False
+        for node in old_nodes:
+            for n in tree_to_list(node, []):
+                if isinstance(n, Element) \
+                and ((n.tag == "link" \
+                and n.attributes.get("rel") == "stylesheet" \
+                and "href" in n.attributes \
+                ) or (n.tag == "style")):
+                    has_sheets = True
+                    break
+        if has_sheets:
+            self.tab.load_sheets()

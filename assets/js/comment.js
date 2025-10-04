@@ -6,7 +6,7 @@ function lengthCheck() {
     allow_submit = value.length <= 100;
     if (!allow_submit) {
         strong.innerHTML = "Text to long!";
-    } else {
+    } else if (strong.innerHTML) {
         strong.innerHTML = "";
     }
 }
