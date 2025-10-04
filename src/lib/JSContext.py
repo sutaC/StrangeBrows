@@ -22,6 +22,7 @@ class JSContext:
         self.handle_to_node: dict[int, Element] = {}
         # Exports functions
         self.interp.export_function("log", print)
+        self.interp.export_function("querySelector", self.querySelector)
         self.interp.export_function("querySelectorAll", self.querySelectorAll)
         self.interp.export_function("getAttribute", self.getAttribute)
         self.interp.export_function("createElement", self.createElement)
@@ -49,6 +50,14 @@ class JSContext:
             print("Script", script, "crashed", e)
 
     # Exported functions
+    def querySelector(self, selector_text: str) -> int | None:
+        from .Tab import tree_to_list
+        selector = CSSParser(selector_text).selector()
+        for node in tree_to_list(self.tab.nodes, []):
+            if selector.matches(node):
+                return self.get_handle(node)
+        return None
+
     def querySelectorAll(self, selector_text: str) -> list[int]:
         from .Tab import tree_to_list
         selector = CSSParser(selector_text).selector()

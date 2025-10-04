@@ -1,4 +1,4 @@
-var strong = document.querySelectorAll("strong")[0];
+var strong = document.querySelector("strong");
 var allow_submit = true;
 
 function lengthCheck() {
@@ -16,7 +16,7 @@ for (var i = 0; i < inputs.length; i++) {
     inputs[i].addEventListener("keydown", lengthCheck);
 }
 
-var form = document.querySelectorAll("form")[0];
+var form = document.querySelector("form");
 form.addEventListener("submit", function (e) {
     if (!allow_submit) e.preventDefault();
 });

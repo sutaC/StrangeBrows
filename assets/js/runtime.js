@@ -74,9 +74,7 @@ Object.defineProperty(Node.prototype, "children", {
 Object.defineProperty(Node.prototype, "parentNode", {
     get: function () {
         var handle = call_python("parentNode_get", this.handle);
-        if (handle == null) {
-            return null;
-        }
+        if (handle == null) return null;
         return new Node(handle);
     },
 });
@@ -90,6 +88,11 @@ Object.defineProperty(Node.prototype, "id", {
 });
 
 document = {
+    querySelector: function (s) {
+        var handle = call_python("querySelector", s);
+        if (handle == null) return null;
+        return new Node(handle);
+    },
     querySelectorAll: function (s) {
         var handles = call_python("querySelectorAll", s);
         return handles.map(function (h) {
