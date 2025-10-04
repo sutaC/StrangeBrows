@@ -3,7 +3,7 @@ from typing import Any
 from . import BASE_DIR
 from pathlib import Path
 from .CSSParser import CSSParser
-from .HTMLParser import HTMLParser, Element
+from .HTMLParser import HTMLParser, Element, Text, parse_to_html
 
 RUNTIME_JS_PATH = Path(BASE_DIR) / "assets" / "js"  / "runtime.js"
 RUNTIME_JS = open(RUNTIME_JS_PATH).read()
@@ -28,9 +28,14 @@ class JSContext:
         self.interp.export_function("appendChild", self.appendChild)
         self.interp.export_function("insertBefore", self.insertBefore)
         self.interp.export_function("removeChild", self.removeChild)
+        self.interp.export_function("innerHTML_get", self.innerHTML_get)
         self.interp.export_function("innerHTML_set", self.innerHTML_set)
+        self.interp.export_function("outerHTML_get", self.outerHTML_get)
+        self.interp.export_function("outerHTML_set", self.outerHTML_set)
         self.interp.export_function("children_get", self.children_get)
         self.interp.export_function("parentNode_get", self.parentNode_get)
+        self.interp.export_function("id_get", self.id_get)
+        self.interp.export_function("id_set", self.id_set)
         self.interp.export_function("toString", self.toString)
         # Add runtime
         self.interp.evaljs(RUNTIME_JS)
@@ -43,6 +48,7 @@ class JSContext:
         except dukpy.JSRuntimeError as e:
             print("Script", script, "crashed", e)
 
+    # Exported functions
     def querySelectorAll(self, selector_text: str) -> list[int]:
         from .Tab import tree_to_list
         selector = CSSParser(selector_text).selector()
@@ -95,21 +101,51 @@ class JSContext:
         self.tab.render()
         return h_child
 
+    def innerHTML_get(self, handle: int) -> str:
+        node = self.handle_to_node[handle]
+        return "".join([
+            parse_to_html(child) for child in node.children
+        ])
+
     def innerHTML_set(self, handle: int, s: str) -> None:
         doc = HTMLParser("<html><body>" + s + "</body></html>").parse()
         new_nodes = doc.children[0].children
         elt = self.handle_to_node[handle]
-        # Removes old id references
+        # Removes old references
         for child in elt.children:
             if isinstance(child, Element):
                 self.remove_tree_id(child)
             child.parent = None
         elt.children = new_nodes
-        # Adds new id references
+        # Adds new references
         for child in elt.children:
             if isinstance(child, Element):
                 self.add_tree_id(child)
             child.parent = elt
+        self.tab.render()
+
+    def outerHTML_get(self, handle: int) -> str:
+        node = self.handle_to_node[handle]
+        return parse_to_html(node)
+    
+    def outerHTML_set(self, handle: int, s: str) -> None:
+        elt = self.handle_to_node[handle]
+        if not elt.parent: return
+        # Adding new nodes
+        doc = HTMLParser("<html><body>" + s + "</body></html>").parse()
+        new_nodes = doc.children[0].children
+        for node in new_nodes:
+            assert isinstance(node, Element) or isinstance(node, Text)
+            if isinstance(node, Element):
+                h_node = self.get_handle(node)
+                self.insertBefore(handle, h_node)
+            else:
+                node.parent = elt.parent
+                idx = elt.parent.children.index(elt)
+                node.parent.children.insert(idx, node)
+        # Removing old node
+        h_parent = self.get_handle(elt.parent)
+        self.removeChild(h_parent, handle)
         self.tab.render()
 
     def children_get(self, handle: int) -> list[int]:
@@ -125,10 +161,29 @@ class JSContext:
         if node.parent is None: return None
         return  self.get_handle(node.parent)
     
+    def id_get(self, handle: int) -> str | None:
+        node = self.handle_to_node[handle]
+        return node.attributes.get("id")
+
+    def id_set(self, handle: int, s: str) -> None:
+        node = self.handle_to_node[handle]
+        self.remove_id_var(node)
+        if not s: 
+            node.attributes.pop("id")
+            return
+        node.attributes["id"] = s
+        self.add_id_var(node)
+    
     def toString(self, handle: int) -> str:
         elt = self.handle_to_node[handle]
         return elt.__repr__()
 
+    def dispatch_event(self, type: str, elt: Element) -> bool:
+        handle: int = self.node_to_handle.get(elt, -1)
+        do_default = self.interp.evaljs(EVENT_DISPATCH_JS, type=type, handle=handle)
+        return not do_default
+
+    # Inner functions
     def get_handle(self, elt: Element) -> int:
         if elt not in self.node_to_handle:
             handle = len(self.node_to_handle)
@@ -137,11 +192,6 @@ class JSContext:
         else:
             handle = self.node_to_handle[elt]
         return handle
-    
-    def dispatch_event(self, type: str, elt: Element) -> bool:
-        handle: int = self.node_to_handle.get(elt, -1)
-        do_default = self.interp.evaljs(EVENT_DISPATCH_JS, type=type, handle=handle)
-        return not do_default
 
     def add_id_var(self, node: Element) -> None:
         if "id" not in node.attributes: return

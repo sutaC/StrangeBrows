@@ -1,8 +1,10 @@
 var LISTENERS = {};
 
 console = {
-    log: function (msg) {
-        call_python("log", msg);
+    log: function () {
+        for (var i = 0; i < arguments.length; i++) {
+            call_python("log", arguments[i]);
+        }
     },
 };
 
@@ -46,8 +48,19 @@ Node.prototype.removeChild = function (child) {
     return new Node(child);
 };
 Object.defineProperty(Node.prototype, "innerHTML", {
+    get: function () {
+        return call_python("innerHTML_get", this.handle);
+    },
     set: function (s) {
         call_python("innerHTML_set", this.handle, s.toString());
+    },
+});
+Object.defineProperty(Node.prototype, "outerHTML", {
+    get: function () {
+        return call_python("outerHTML_get", this.handle);
+    },
+    set: function (s) {
+        call_python("outerHTML_set", this.handle, s.toString());
     },
 });
 Object.defineProperty(Node.prototype, "children", {
@@ -65,6 +78,14 @@ Object.defineProperty(Node.prototype, "parentNode", {
             return null;
         }
         return new Node(handle);
+    },
+});
+Object.defineProperty(Node.prototype, "id", {
+    get: function () {
+        return call_python("id_get", this.handle);
+    },
+    set: function (s) {
+        call_python("id_set", this.handle, s);
     },
 });
 

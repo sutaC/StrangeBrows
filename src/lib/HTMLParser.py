@@ -239,3 +239,13 @@ class HTMLSourceParser(HTMLParser):
         self.recurse(nodes)
         self.add_tag("/pre")
         return self.finish()
+    
+def parse_to_html(node: Element | Text) -> str:
+    if isinstance(node, Text):
+        return node.text
+    out = node.__repr__()
+    for child in node.children:
+        out += parse_to_html(child)
+    if node.tag not in SELF_CLOSING_TAGS:
+        out += "</{}>".format(node.tag)
+    return out
