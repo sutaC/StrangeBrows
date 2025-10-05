@@ -42,3 +42,8 @@ python ./src/server.py
 ```
 
 You can connect to this server on `https://localhost:8000/`
+
+### Credentials for dummy accounts stored in server:
+
+-   login: `crashoverride`; password: `0cool`
+-   login: `cerealkiller`; password: `emmanuel`

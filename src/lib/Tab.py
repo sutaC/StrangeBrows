@@ -23,7 +23,7 @@ DEFAULT_STYLE_SHEET = CSSParser(ss).parse()
 class Tab:
     def __init__(self, window: tkinter.Tk, dimesnions: Dimensions) -> None:
         self.window: tkinter.Tk = window
-        self.url: URL
+        self.url: URL = URL("about:blank")
         self.js: JSContext
         self.dimensions: Dimensions = dimesnions
         self.images: list[tkinter.PhotoImage] = []
@@ -32,6 +32,7 @@ class Tab:
         self.history: list[URL] = []
         self.forward_history: list[URL] = []
         self.focus: Element | None = None
+        self.allowed_origins: list[str] | None = None
         
     # --- Event handlers
     def scrollup(self) -> None:
@@ -204,15 +205,21 @@ class Tab:
         self.focus = None
         self.scroll = 0
         self.history.append(url)
-        self.url = url
-        self.url.storage.add_history(str(self.url))
-        # Body parsing
-        body = self.url.request(payload)
-        if self.url.view_source:
+        url.storage.add_history(str(url))
+        headers, body = url.request(self.url, payload)
+        self.allowed_origins = None
+        if "content-security-policy" in headers:
+            csp = headers["content-security-policy"].split()
+            if len(csp) > 0 and csp[0] == "default-src":
+                self.allowed_origins = []
+                for origin in csp[1:]:
+                    self.allowed_origins.append(URL(origin).origin())
+        if url.view_source:
             self.nodes = HTMLSourceParser(body).source()
         else:
             self.nodes = HTMLParser(body).parse()
-        # Propagating attributes    
+        self.url = url
+        # Propagating attributes
         self.propagate_attributes(self.nodes)        
         # Executing JavaScript
         self.js = JSContext(self)
@@ -265,8 +272,12 @@ class Tab:
         ]
         for script in scripts:
             script_url = self.url.resolve(script)
-            try: body = script_url.request()
+            if not self.allowed_request(script_url):
+                print("Blocked script", script, "due to csp")
+                continue
+            try: headers, body = script_url.request(self.url)
             except: continue
+            if not script_url.is_valid: continue
             self.js.run(script, body)
 
     def load_sheets(self) -> None:
@@ -282,9 +293,12 @@ class Tab:
         for sheet in sheets:
             body = ""
             if sheet.tag == "link":
-                style_url = self.url.resolve(sheet.attributes["href"])
-                if not style_url.is_valid: continue
-                try: body = style_url.request()
+                sheet_url = self.url.resolve(sheet.attributes["href"])
+                if not self.allowed_request(sheet_url):
+                    print("Blocked stylesheet", sheet.attributes["href"], "due to csp")
+                    continue
+                if not sheet_url.is_valid: continue
+                try: headers, body = sheet_url.request(self.url)
                 except: continue
             elif sheet.tag == "style":
                 for child in sheet.children:
@@ -292,6 +306,10 @@ class Tab:
                         body += child.text
             
             self.rules.extend(CSSParser(body).parse())
+    
+    def allowed_request(self, url: URL) -> bool:
+        return self.allowed_origins == None \
+        or url.origin() in self.allowed_origins
 
     def can_back(self) -> bool:
         return len(self.history) > 1 

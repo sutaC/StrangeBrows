@@ -5,7 +5,7 @@ import ssl
 from time import time
 from pathlib import Path
 from .Storage import Storage
-from . import BASE_DIR
+from . import BASE_DIR, COOKIE_JAR
 
 DEFAULT_PAGE_PATH = Path(BASE_DIR) / "assets" / "html" / "home.html"
 BOOKMARKS_PAGE_PATH = Path(BASE_DIR) / "assets" / "html" / "bookmarks.html"
@@ -101,6 +101,13 @@ class URL:
         for k, s in self.saved_sockets.items():
             s.close()
 
+    def origin(self) -> str:
+        if not self.url \
+        or self.url.startswith("about:") \
+        or self.scheme not in ["http", "https"]:
+            return ""
+        return self.scheme + "://" + self.host + ":" + str(self.port)
+
     def resolve(self, url: str) -> 'URL':
         if (not url) or url.startswith(("about:", "data:", "file://")):
             return URL(url)
@@ -120,7 +127,7 @@ class URL:
         else:
             return URL(self.scheme + "://" + self.host + ":" + str(self.port) + url)
 
-    def request(self, payload: str | None = None) -> str:
+    def request(self, referrer: 'URL', payload: str | None = None) -> tuple[dict[str, str], str]:
         self.method = "POST" if payload else "GET"
         self.payload = payload
         # Base cases
@@ -131,10 +138,10 @@ class URL:
                 content = file.read()
                 file.close()
             except:
-                return "<h1>404 Not Found</h1>"
-            return content
+                return {}, "<h1>404 Not Found</h1>"
+            return {}, content
         elif self.url == "about:blank":
-            return ""
+            return {}, ""
         elif self.url == "about:bookmarks":
             content = ""
             try:
@@ -142,7 +149,7 @@ class URL:
                 content = file.read()
                 file.close() 
             except:
-                return "<h1>404 Not Found</h1>"
+                return {}, "<h1>404 Not Found</h1>"
             bookmarks = []
             for url, _ in self.storage.get_all_bookmarks():
                 title = url 
@@ -150,7 +157,7 @@ class URL:
                 bookmarks.append('<li><a href="{}">{}</a></li>'.format(url, title))
             x_bookmarks = "<ul>{}</ul>".format("".join(bookmarks)) if bookmarks else '<small class="empty">There are no bookmarks!</small>'
             content = content.replace("<x-bookmarks>", x_bookmarks)
-            return content
+            return {}, content
         elif self.scheme == "file":
             content = ""
             try:
@@ -158,14 +165,14 @@ class URL:
                 content = file.read()
                 file.close()
             except:
-                return "<h1>404 Not Found</h1>"
-            return content
+                return {}, "<h1>404 Not Found</h1>"
+            return {}, content
         elif self.scheme == "data":
-            return self.content
+            return {}, self.content
         # Cache
         if self.method == "GET":
             cached_response = self.storage.get_cache(self.url)
-            if cached_response is not None: return cached_response
+            if cached_response is not None: return {}, cached_response
         # Socket
         s: socket.socket
         socket_key = (self.scheme, self.host, self.port)
@@ -183,40 +190,62 @@ class URL:
             self.saved_sockets[(self.scheme, self.host, self.port)] = s
             s.connect((self.host, self.port))
         # Request
+        request = "{} {} HTTP/1.1\r\n".format(self.method, self.path)
         request_headers = {
             "Host": self.host,
             "Connection": "keep-alive",
             "User-Agent": "StrangeBrows",
             "Accept-Encoding": "gzip"
         }
-        request = "{} {} HTTP/1.1\r\n".format(self.method, self.path)
         if self.payload:
             length = len(self.payload.encode())
             request_headers["Content-Length"] = str(length)
         for header in request_headers:
             request += "{}: {}\r\n".format(header, request_headers[header])
+        if self.host in COOKIE_JAR:
+            cookie, params  = COOKIE_JAR[self.host]
+            allow_cookie = True
+            if referrer and params.get("samesite", "none") == "lax":
+                if self.method != "GET":
+                    allow_cookie = self.host == referrer.host
+            if allow_cookie:
+                request += "Cookie: {}\r\n".format(cookie)
         request += "\r\n"
+        # Request payload
         if self.payload: request += self.payload
         s.send(request.encode())
         response = s.makefile("rb", encoding="utf-8", newline="\r\n")
-        # Status line
+        # Response status line
         statusline = response.readline().decode()
         try:
             version, status, explenation = statusline.split(" ", 2)
         except:
             if socket_key in self.saved_sockets:
                 self.saved_sockets.pop(socket_key)
-                return self.request(self.payload)
+                return self.request(referrer, self.payload)
             print("Recived invalid response from '{}'...".format(self.url))
-            return ""
+            return {}, ""
         status = int(status)
         # Headers
-        response_headers = {}
+        response_headers: dict[str, str] = {}
         while True:
             line = response.readline().decode()
             if line == "\r\n": break
             header, value = line.split(":", 1)
             response_headers[header.casefold()] = value.strip()
+        # Cookies
+        if "set-cookie" in response_headers:
+            cookie = response_headers["set-cookie"]
+            params = {}
+            if ";" in cookie:
+                cookie, rest = cookie.split(";", 1)
+                for param in rest.split(";"):
+                    if "=" in param:
+                        param, value = param.split("=", 1)
+                    else: 
+                        value = "true"
+                    params[param.strip().casefold()] = value.casefold()
+            COOKIE_JAR[self.host] = (cookie, params)        
         # Content
         content: str
         if "content-encoding" in response_headers and response_headers["content-encoding"] == "gzip":
@@ -247,7 +276,7 @@ class URL:
             new_url = self.resolve(location)
             new_url.redirect_count = self.redirect_count
             new_url.saved_sockets = self.saved_sockets
-            return new_url.request()
+            return new_url.request(referrer)
         else:
             self.redirect_count = 0
         if status == 200 and "cache-control" in response_headers:
@@ -266,4 +295,4 @@ class URL:
                     self.storage.update_cache(self.url, expires, content)
                 else:
                     self.storage.add_cache(self.url, expires, content)
-        return content
+        return response_headers, content

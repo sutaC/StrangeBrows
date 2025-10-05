@@ -7,3 +7,5 @@ if hasattr(sys, '_MEIPASS'):
 else:
     # Running in normal Python (development mode) - root directoy of project
     BASE_DIR = Path(__file__).parent.parent.parent
+
+COOKIE_JAR: dict[str, tuple[str, dict[str, str]]] = {}

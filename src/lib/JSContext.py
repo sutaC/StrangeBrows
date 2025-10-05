@@ -38,6 +38,7 @@ class JSContext:
         self.interp.export_function("id_get", self.id_get)
         self.interp.export_function("id_set", self.id_set)
         self.interp.export_function("toString", self.toString)
+        self.interp.export_function("XMLHttpRequest_send", self.XMLHttpRequest_send)
         # Add runtime
         self.interp.evaljs(RUNTIME_JS)
         # Propragates id variables
@@ -202,6 +203,15 @@ class JSContext:
         if handle < 0: return False
         do_default = self.interp.evaljs(EVENT_DISPATCH_JS, type=type, handle=handle)
         return not do_default
+
+    def XMLHttpRequest_send(self, method: str, url: str, body: str | None) -> str:
+        full_url = self.tab.url.resolve(url)
+        if not self.tab.allowed_request(full_url):
+            raise Exception("Cross-origin XHR blocked by CSP")
+        if full_url.origin() != self.tab.url.origin():
+            raise Exception("Cross-origin XHR request not allowed")
+        headers, out = full_url.request(self.tab.url, body)
+        return out
 
     # Inner functions
     def get_handle(self, elt: Element) -> int:
