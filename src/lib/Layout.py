@@ -320,6 +320,7 @@ class BlockLayout(Layout):
         self.children.append(new_line)
 
     def input(self, node: Element) -> None:
+        if node.attributes.get("type") == "hidden": return
         w = INPUT_WIDTH_PX
         if self.cursor_x + w > self.width:
             self.new_line()
@@ -476,10 +477,10 @@ class InputLayout(Layout):
         self.parent: LineLayout = parent
         self.previous: TextLayout | InputLayout | None = previous
         self.children: list[Layout] = []
-        # Support only for types: text, checkbox, button
+        # Support only for types: text, checkbox, hidden, password, button
         self.type = self.node.attributes.get("type", "text")
         if self.node.tag == "button": self.type = "button"
-        elif self.type != "checkbox": self.type = "text"
+        elif self.type not in ["text", "checkbox", "hidden", "password"]: self.type = "text"
         # ---
         self.x: int
         self.y: int
@@ -525,8 +526,10 @@ class InputLayout(Layout):
         if bgcolor != "transparent":
             cmds.append(DrawRect(self.self_rect(), bgcolor, layout=self))
         # Type dependant
-        if self.type == "text":
+        if self.type in ["text", "password"]:
             text = self.node.attributes.get("value", "")                
+            if self.type == "password":
+                text = "*" * len(text)
             if self.node.is_focused:
                 cx = self.x + self.font.measure(text)
                 cmds.append(DrawLine(cx, self.y, cx, self.y + self.height, "black", 1, layout=self))
@@ -549,7 +552,7 @@ class InputLayout(Layout):
         return cmds
     
     def should_paint(self) -> bool:
-        return super().should_paint()
+        return self.type != "hidden"
 
     def self_rect(self) -> Rect:
         return Rect(self.x, self.y, self.x + self.width, self.y + self.height)
