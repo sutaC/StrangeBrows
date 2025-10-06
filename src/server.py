@@ -341,7 +341,7 @@ def handle_connection(conx: socket.socket) -> None:
     csp = "default-src http://localhost:8000"
     response += "Content-Security-Policy: {}\r\n".format(csp)
     if "cookie" not in headers:
-        template = "Set-Cookie: token={}; SameSite=Lax\r\n"
+        template = "Set-Cookie: token={}; SameSite=Lax; HttpOnly\r\n"
         response += template.format(token)
     # Sending response
     response += "\r\n" + body

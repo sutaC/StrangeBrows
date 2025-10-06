@@ -104,6 +104,14 @@ document = {
         return new Node(handle);
     },
 };
+Object.defineProperty(document, "cookie", {
+    get: function () {
+        return call_python("cookie_get");
+    },
+    set: function (s) {
+        call_python("cookie_set", s);
+    },
+});
 
 function Event(type) {
     this.type = type;

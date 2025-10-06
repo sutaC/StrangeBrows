@@ -248,16 +248,7 @@ class URL:
         # Cookies
         if "set-cookie" in response_headers:
             cookie = response_headers["set-cookie"]
-            params = {}
-            if ";" in cookie:
-                cookie, rest = cookie.split(";", 1)
-                for param in rest.split(";"):
-                    if "=" in param:
-                        param, value = param.split("=", 1)
-                    else: 
-                        value = "true"
-                    params[param.strip().casefold()] = value.casefold()
-            COOKIE_JAR[self.host] = (cookie, params)        
+            COOKIE_JAR[self.host] = parse_cookie(cookie)
         # Content
         content: str
         if "content-encoding" in response_headers and response_headers["content-encoding"] == "gzip":
@@ -308,3 +299,15 @@ class URL:
                 else:
                     self.storage.add_cache(self.url, expires, content)
         return response_headers, content
+    
+def parse_cookie(cookie: str) -> tuple[str, dict[str, str]]:
+    params = {}
+    if ";" in cookie:
+        cookie, rest = cookie.split(";", 1)
+        for param in rest.split(";"):
+            if "=" in param:
+                param, value = param.split("=", 1)
+            else: 
+                value = "true"
+            params[param.strip().casefold()] = value.casefold()
+    return cookie, params

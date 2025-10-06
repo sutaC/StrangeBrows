@@ -1,8 +1,9 @@
 import dukpy
 from typing import Any
-from . import BASE_DIR
 from pathlib import Path
+from .URL import parse_cookie
 from .CSSParser import CSSParser
+from . import BASE_DIR, COOKIE_JAR
 from .HTMLParser import HTMLParser, Element, Text, parse_to_html
 
 RUNTIME_JS_PATH = Path(BASE_DIR) / "assets" / "js"  / "runtime.js"
@@ -35,6 +36,8 @@ class JSContext:
         self.interp.export_function("outerHTML_set", self.outerHTML_set)
         self.interp.export_function("children_get", self.children_get)
         self.interp.export_function("parentNode_get", self.parentNode_get)
+        self.interp.export_function("cookie_get", self.cookie_get)
+        self.interp.export_function("cookie_set", self.cookie_set)
         self.interp.export_function("id_get", self.id_get)
         self.interp.export_function("id_set", self.id_set)
         self.interp.export_function("toString", self.toString)
@@ -194,6 +197,21 @@ class JSContext:
         node.attributes["id"] = s
         self.add_id_var(node)
     
+    def cookie_get(self) -> str:
+        cookie, params = COOKIE_JAR.get(self.tab.url.host, ("", {}))
+        if 'httponly' in params: cookie = ""
+        return cookie
+    
+    def cookie_set(self, s: str) -> None:
+        cookie, params = COOKIE_JAR.get(self.tab.url.host, ("", {}))
+        new_cookie, new_params = parse_cookie(s)
+        if "httponly" in new_params:
+            new_params.pop("httponly")
+        if "httponly" in params \
+        and new_cookie.split("=", 1)[0] == cookie.split("=", 1)[0]:
+            raise ValueError("Cannot write to HttpOnly cookies")
+        COOKIE_JAR[self.tab.url.host] = (new_cookie, new_params)
+
     def toString(self, handle: int) -> str:
         elt = self.handle_to_node[handle]
         return elt.__repr__()
