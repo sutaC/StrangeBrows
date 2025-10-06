@@ -6,7 +6,7 @@ from . import BASE_DIR
 from .Draw import Draw
 from pathlib import Path
 from .JSContext import JSContext
-from .CSSParser import CSSParser, style, cascade_priority
+from .CSSParser import CSS_rule, CSSParser, style, cascade_priority
 from .HTMLParser import HTMLParser, HTMLSourceParser, Element, Text
 from .Layout import Dimensions, DocumentLayout, Layout
 
@@ -33,6 +33,8 @@ class Tab:
         self.forward_history: list[URL] = []
         self.focus: Element | None = None
         self.allowed_origins: list[str] | None = None
+        self.nodes: Element = Element("html", {}, None)
+        self.rules: list[CSS_rule] = DEFAULT_STYLE_SHEET.copy()
         
     # --- Event handlers
     def scrollup(self) -> None:
@@ -234,6 +236,18 @@ class Tab:
             if node is not None: 
                 self.scroll = node.y
                 self.scrollmousewheel_darwin(0) # Prevents overscroll
+        # SSL error handling
+        if 'x-ssl-error' in headers:
+            box = tkinter.messagebox.Message(
+                master=self.window,
+                parent=self.window,
+                title="Alert",
+                type=tkinter.messagebox.OK,
+                icon=tkinter.messagebox.ERROR,
+                message="This connection is not secure!",
+                detail="Page is not loaded, because SSL certificate error ocurred:\n\n{}".format(headers["x-ssl-error"])
+            )
+            box.show()
 
     def render(self) -> None:
         style(self.nodes, sorted(self.rules, key=cascade_priority))

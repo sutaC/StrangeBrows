@@ -8,7 +8,6 @@ from .Layout import Dimensions
 
 class Browser:
     def __init__(self) -> None:
-        self.active_tab: Tab
         self.tabs: list[Tab] = []
         self.dimensions = Dimensions(
             width=800,
@@ -25,6 +24,7 @@ class Browser:
             bg="white"
         )
         self.canvas.pack(fill="both", expand=1)
+        self.active_tab: Tab = Tab(self.window, self.dimensions)
         self.window.bind("<Up>", self.handle_scrollup)
         self.window.bind("<Down>", self.handle_scrolldown)
         self.window.bind("<Left>", self.handle_left)

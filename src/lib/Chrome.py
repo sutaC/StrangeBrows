@@ -40,7 +40,7 @@ class Chrome:
             self.urlbar_bottom - self.padding
         )
         # Refresh button
-        forward_width = self.font.measure("@") + 2*self.padding
+        forward_width = self.font.measure("\N{clockwise gapped circle arrow}") + 2*self.padding
         self.refresh_rect = Rect(
             self.forward_rect.right + self.padding,
             self.urlbar_top + self.padding,
@@ -105,8 +105,8 @@ class Chrome:
         cmds.append(DrawOutline(self.refresh_rect, "black", 1))
         cmds.append(DrawText(
             self.refresh_rect.left + self.padding,
-            self.refresh_rect.top,
-            "@", self.font, "black"
+            self.refresh_rect.top + self.padding,
+            "\N{clockwise gapped circle arrow}", self.font, "black"
         ))
         # New tab button
         cmds.append(DrawOutline(self.newtab_rect, "black", 1))
@@ -127,24 +127,37 @@ class Chrome:
         ))
         # Address bar
         cmds.append(DrawOutline(self.address_rect, "black", 1))
+        connection_type: str
+        if self.browser.active_tab.url.is_safe is None:
+            connection_type = "\N{circled information source}"
+        elif self.browser.active_tab.url.is_safe:
+            connection_type = "\N{lock}"
+        else:
+            connection_type = "\N{open lock}"
+        ctw = self.font.measure(connection_type) + 2*self.padding
+        cmds.append(DrawText(
+            self.address_rect.left + self.padding,
+            self.address_rect.top + self.padding,
+            connection_type, self.font, "black"
+        ))
         if self.focus == "address bar":
             cmds.append(DrawText(
-                self.address_rect.left + self.padding,
+                self.address_rect.left + ctw + self.padding,
                 self.address_rect.top,
                 self.address_bar, self.font, "black"
             ))
             w = self.font.measure(self.address_bar[:self.cursor_position]) if self.cursor_position > 0 else 0
             cmds.append(DrawLine(
-                self.address_rect.left + self.padding + w,
+                self.address_rect.left + ctw + self.padding + w,
                 self.address_rect.top,
-                self.address_rect.left + self.padding + w,
+                self.address_rect.left + ctw + self.padding + w,
                 self.address_rect.bottom,
                 "red", 1
             ))
         else:
             url = str(self.browser.active_tab.url)
             cmds.append(DrawText(
-                self.address_rect.left + self.padding,
+                self.address_rect.left + ctw + self.padding,
                 self.address_rect.top,
                 url, self.font, "black"
             ))

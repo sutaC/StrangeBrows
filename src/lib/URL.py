@@ -27,6 +27,7 @@ class URL:
         self.port: int = 0
         self.fragment: str | None = None
         self.view_source: bool = False
+        self.is_safe: bool | None = None
         # data scheme specific
         self.content: str = ""
         self.type: str = ""
@@ -53,8 +54,10 @@ class URL:
                 return
             elif self.scheme == "http":
                 self.port = 80
+                self.is_safe = False
             elif self.scheme == "https":
                 self.port = 443
+                self.is_safe = True
             if "#" in url:
                 url, self.fragment = url.split("#", 1) 
             if "/" not in url and "?" not in url:
@@ -188,7 +191,16 @@ class URL:
                 ctx = ssl.create_default_context()
                 s = ctx.wrap_socket(s, server_hostname=self.host)
             self.saved_sockets[(self.scheme, self.host, self.port)] = s
-            s.connect((self.host, self.port))
+            try:
+                s.connect((self.host, self.port))
+            except (ssl.SSLCertVerificationError, ssl.SSLError) as e:
+                self.is_safe = False
+                self.is_valid = False
+                s.close()
+                self.saved_sockets.pop(socket_key)
+                return {"x-ssl-error": str(e)}, "<h1>SSL error ocurred while connecting to host...</h1>"
+            except:
+                return {}, "<h1>Error ocurred while connecting to host...</h1>"
         # Request
         request = "{} {} HTTP/1.1\r\n".format(self.method, self.path)
         request_headers = {
