@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 import re
 import html
+import time
 import socket
 import random
-import urllib.parse
 import sqlite3
+import urllib.parse
+from typing import Any
 from pathlib import Path
+from email.utils import formatdate
 from argparse import ArgumentParser
 from collections import namedtuple
 
-session_data = dict
+session_data = dict[str, Any]
 Comment = namedtuple("Comment", ["content", "author"])
 Topic = namedtuple("Topic", ["title", "author"])
 
@@ -19,6 +22,10 @@ COMMENT_JS_PATH = BASE_PATH / "assets" / "js" / "comment.js"
 COMMENT_CSS_PATH = BASE_PATH / "assets" / "css" / "comment.css"
 
 SESSIONS: dict[str, session_data] = {}
+
+next_cleanup: float = 0.0
+CLEANUP_INTERVAL = 900 # 15min
+COOKIE_LIFETIME = 86400 # 1day
 
 class Databse:
     def __init__(self) -> None:
@@ -157,7 +164,7 @@ def show_comments(session: session_data, topic: str) -> str:
     if not has_topic: 
         db.close()
         return ""
-    parsed = urllib.parse.quote(topic)
+    parsed = urllib.parse.quote_plus(topic)
     out = "<!doctype html>"
     out += '<link rel="stylesheet" href="/comment.css">'
     out += "<h1>{}</h1>".format(
@@ -308,6 +315,16 @@ body: str | None
     else:
         return "404 Not Found", not_found(url, method)
 
+def cleanup_session() -> None:
+    global next_cleanup
+    if next_cleanup > time.time(): return
+    now = time.time()
+    next_cleanup = now + CLEANUP_INTERVAL
+    for id, session in SESSIONS.copy().items():
+        expires: float = session["expires"]
+        if expires < now:
+            SESSIONS.pop(id)
+
 def handle_connection(conx: socket.socket) -> None:
     req = conx.makefile("rb")
     # Reqline parsing
@@ -333,6 +350,7 @@ def handle_connection(conx: socket.socket) -> None:
     else:
         token = str(random.random())[2:]
     session = SESSIONS.setdefault(token, {})
+    session["expires"] = time.time() + COOKIE_LIFETIME
     # Response generation
     status, body  = do_request(session, method, url, headers, body)
     response = "HTTP/1.0 {}\r\n".format(status)
@@ -341,8 +359,9 @@ def handle_connection(conx: socket.socket) -> None:
     csp = "default-src http://localhost:8000"
     response += "Content-Security-Policy: {}\r\n".format(csp)
     if "cookie" not in headers:
-        template = "Set-Cookie: token={}; SameSite=Lax; HttpOnly\r\n"
-        response += template.format(token)
+        template = "Set-Cookie: token={}; SameSite=Lax; HttpOnly; Expires={}\r\n"
+        expires = formatdate(timeval=session["expires"], localtime=False, usegmt=False)
+        response += template.format(token, expires)
     # Sending response
     response += "\r\n" + body
     conx.send(response.encode())
@@ -381,6 +400,7 @@ def main() -> None:
             print("[ERROR]: {}".format(e))
             traceback.print_exc()
             conx.close()
+        cleanup_session()
 
 if __name__ == "__main__":
     try:

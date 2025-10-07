@@ -6,6 +6,7 @@ from time import time
 from pathlib import Path
 from .Storage import Storage
 from . import BASE_DIR, COOKIE_JAR
+from email.utils import parsedate_to_datetime
 
 DEFAULT_PAGE_PATH = Path(BASE_DIR) / "assets" / "html" / "home.html"
 BOOKMARKS_PAGE_PATH = Path(BASE_DIR) / "assets" / "html" / "bookmarks.html"
@@ -217,9 +218,17 @@ class URL:
         if self.host in COOKIE_JAR:
             cookie, params  = COOKIE_JAR[self.host]
             allow_cookie = True
-            if referrer and params.get("samesite", "none") == "lax":
+            # Handling Expires
+            if "expires" in params and params["expires"] != "session":
+                expires: float = parsedate_to_datetime(params["expires"]).astimezone().timestamp()
+                if expires < time():
+                    allow_cookie = False
+                    COOKIE_JAR.pop(self.host)
+            # Handling SameSite
+            if allow_cookie and referrer and params.get("samesite", "none") == "lax":
                 if self.method != "GET":
                     allow_cookie = self.host == referrer.host
+            # ---
             if allow_cookie:
                 request += "Cookie: {}\r\n".format(cookie)
         request += "\r\n"
