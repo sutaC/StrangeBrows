@@ -201,6 +201,8 @@ class URL:
                 self.saved_sockets.pop(socket_key)
                 return {"x-ssl-error": str(e)}, "<h1>SSL error ocurred while connecting to host...</h1>"
             except:
+                s.close()
+                self.saved_sockets.pop(socket_key)
                 return {}, "<h1>Error ocurred while connecting to host...</h1>"
         # Request
         request = "{} {} HTTP/1.1\r\n".format(self.method, self.path)
@@ -208,8 +210,10 @@ class URL:
             "Host": self.host,
             "Connection": "keep-alive",
             "User-Agent": "StrangeBrows",
-            "Accept-Encoding": "gzip"
+            "Accept-Encoding": "gzip",
         }
+        if referrer.origin() and self.origin() != referrer.origin():
+            request_headers["Origin"] = referrer.origin()
         if self.payload:
             length = len(self.payload.encode())
             request_headers["Content-Length"] = str(length)
@@ -242,7 +246,8 @@ class URL:
             version, status, explenation = statusline.split(" ", 2)
         except:
             if socket_key in self.saved_sockets:
-                self.saved_sockets.pop(socket_key)
+                s = self.saved_sockets.pop(socket_key)
+                s.close()
                 return self.request(referrer, self.payload)
             print("Recived invalid response from '{}'...".format(self.url))
             return {}, ""

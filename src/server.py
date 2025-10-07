@@ -355,7 +355,7 @@ def handle_connection(conx: socket.socket) -> None:
     status, body  = do_request(session, method, url, headers, body)
     response = "HTTP/1.0 {}\r\n".format(status)
     # Response Headers
-    response += "Contrnt-Length: {}\r\n".format(len(body.encode()))
+    response += "Content-Length: {}\r\n".format(len(body.encode()))
     csp = "default-src http://localhost:8000"
     response += "Content-Security-Policy: {}\r\n".format(csp)
     if "cookie" not in headers:

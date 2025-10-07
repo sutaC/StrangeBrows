@@ -227,7 +227,11 @@ class JSContext:
         if not self.tab.allowed_request(full_url):
             raise Exception("Cross-origin XHR blocked by CSP")
         if full_url.origin() != self.tab.url.origin():
-            raise Exception("Cross-origin XHR request not allowed")
+            headers, out = full_url.request(self.tab.url, body)
+            acao = headers.get("access-control-allow-origin", "")
+            if acao != "*" and acao != self.tab.url.origin():
+                raise Exception("Cross-origin XHR request not allowed")
+            return out
         headers, out = full_url.request(self.tab.url, body)
         return out
 
