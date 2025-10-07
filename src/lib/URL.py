@@ -29,6 +29,7 @@ class URL:
         self.fragment: str | None = None
         self.view_source: bool = False
         self.is_safe: bool | None = None
+        self.referrer_policy: str | None = None
         # data scheme specific
         self.content: str = ""
         self.type: str = ""
@@ -212,6 +213,9 @@ class URL:
             "User-Agent": "StrangeBrows",
             "Accept-Encoding": "gzip",
         }
+        if (referrer.referrer_policy is None) \
+        or (referrer.referrer_policy == "same-origin" and self.origin() == referrer.origin()):
+            request_headers["Referer"] = str(referrer)
         if referrer.origin() and self.origin() != referrer.origin():
             request_headers["Origin"] = referrer.origin()
         if self.payload:
@@ -259,6 +263,8 @@ class URL:
             if line == "\r\n": break
             header, value = line.split(":", 1)
             response_headers[header.casefold()] = value.strip()
+        # Referrer policy
+        self.referrer_policy = response_headers.get("referrer-policy", None)
         # Cookies
         if "set-cookie" in response_headers:
             cookie = response_headers["set-cookie"]
