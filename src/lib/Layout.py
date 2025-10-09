@@ -1,20 +1,19 @@
-import tkinter
-import tkinter.font
+import skia
 from abc import ABC, abstractmethod
 from .HTMLParser import Element, Text, HEAD_TAGS
-from .Draw import Draw, DrawLine, DrawText, DrawRect, DrawOutline, Rect
+from .Draw import Blend, Draw, DrawLine, DrawRRect, DrawText, DrawRect, DrawOutline
 from typing import Any, Generic, Literal, TypeVar, TypedDict
 
 INPUT_WIDTH_PX = 200
 CHECKBOX_WIDTH_PX = 20
 FONTS: dict[
-    tuple[str, int, Literal['normal', 'bold'], Literal['roman', 'italic']], 
-    tuple[tkinter.font.Font, tkinter.Label]
+    tuple[Literal['normal', 'bold'], Literal['roman', 'italic']], 
+    skia.Font
 ] = {}
 
 word_options = dict[str, Any]
-line_display = tuple[int, str, tkinter.font.Font, word_options]
-display = tuple[int, int, str, tkinter.font.Font, str]
+line_display = tuple[int, str, skia.Font, word_options]
+display = tuple[int, int, str, skia.Font, str]
 
 class Dimensions(TypedDict):
     width: int
@@ -42,6 +41,16 @@ class Layout(ABC, Generic[T]):
 
     @abstractmethod
     def should_paint(self) -> bool: return True
+
+    @abstractmethod
+    def self_rect(self) -> skia.Rect: pass
+
+    @abstractmethod
+    def paint_effects(self, cmds: list[Draw]):
+        cmds = paint_visual_effects(
+            self.node, cmds, self.self_rect()  # type: ignore
+        )
+        return cmds
 
 class DocumentLayout(Layout):
     def __init__(self, node: Element, dimensions: Dimensions) -> None:
@@ -73,10 +82,12 @@ class DocumentLayout(Layout):
     def should_paint(self) -> bool:
         return super().should_paint()
 
-    def self_rect(self) -> Rect:
-        return Rect(self.x, self.y, self.x + self.width, self.y + self.height)
-    
+    def paint_effects(self, cmds: list[Draw]):
+        return super().paint_effects(cmds)
 
+    def self_rect(self) -> skia.Rect:
+        return skia.Rect.MakeXYWH(self.x, self.y, self.width, self.height)
+    
 class BlockLayout(Layout):
     def __init__(
             self, 
@@ -205,34 +216,37 @@ class BlockLayout(Layout):
                         text = " Table of Contents "
                         font = get_font("", 12, "normal", "roman")
                         y1 = self.y - self.dimensions["vstep"]
-                        x2, y2 = self.x + font.measure(text), y1 + font.metrics("linespace")
-                        rect = DrawRect(Rect(self.x, y1, x2, y2), "grey", layout=self)
+                        x2, y2 = self.x + font.measureText(text), y1 + linespace(font)
+                        rect = DrawRect(skia.Rect.MakeLTRB(self.x, y1, x2, y2), "grey", layout=self)
                         cmds.append(rect)
                         cmds.append(DrawText(self.x, y1, text, font, "black", layout=self))
                     if "links" in self.node.attributes.get("class", "").split():
                         x2, y2 = self.x + self.width, self.y + self.height
-                        rect = DrawRect(Rect(self.x, self.y, x2, y2), "light grey", layout=self)
+                        rect = DrawRect(skia.Rect.MakeLTRB(self.x, self.y, x2, y2), "grey", layout=self)
                         cmds.append(rect)
                 case "li":
-                    x1 = self.x - self.dimensions["hstep"]
-                    y1 = self.y + self.height // 2
                     size = 4
-                    x2, y2 = x1 + size, y1 + size
-                    rect = DrawRect(Rect(x1, y1, x2, y2), "black", layout=self) 
+                    x = self.x - self.dimensions["hstep"] + size // 2
+                    y = self.y + self.height // 2 - size // 2
+                    rect = DrawRect(skia.Rect.MakeXYWH(x, y, size, size), "black", layout=self) 
                     cmds.append(rect)
         # Author styles
         for node in self.node if isinstance(self.node, list) else [self.node]:
             if not isinstance(node, Element): continue
             bgcolor = node.style.get("background-color", "transparent")
             if bgcolor != "transparent":
-                x2, y2 = self.x + self.width, self.y + self.height
-                rect = DrawRect(self.self_rect(), bgcolor, layout=self)
+                try: radius = float(node.style.get("border-radius", "0px")[:-2])
+                except: radius = 0.0
+                rect = DrawRRect(self.self_rect(), radius, bgcolor, layout=self)
                 cmds.append(rect)
         return cmds
 
     def should_paint(self) -> bool:
         return isinstance(self.node, Text) \
         or (isinstance(self.node, Element) and self.node.tag not in ["input", "button"])    
+
+    def paint_effects(self, cmds: list[Draw]):
+        return super().paint_effects(cmds)   
 
     def recurse(self, node: Element | Text) -> None:
         if isinstance(node, Text):
@@ -282,7 +296,7 @@ class BlockLayout(Layout):
                 return
         # ---
         font = get_font(family, size, weight, style)
-        w  = font.measure(word)
+        w  = font.measureText(word)
         # Auto line breaks
         if self.cursor_x + w > self.width:
             # Soft hyphens support
@@ -293,7 +307,7 @@ class BlockLayout(Layout):
                     seq, r = seq.rsplit("\N{soft hyphen}", 1)
                     if remainder: remainder = "\N{soft hyphen}" + remainder # To save \N position
                     remainder = r + remainder
-                    seq_w = font.measure(seq + "-")
+                    seq_w = font.measureText(seq + "-")
                     if self.cursor_x + seq_w > self.width: continue
                     seq += "-" # Adds hyphen at separation point
                     line: LineLayout = self.children[-1] # type: ignore
@@ -303,7 +317,7 @@ class BlockLayout(Layout):
                     self.new_line()
                     word = seq = remainder
                     remainder = ""
-                    w = font.measure(word)
+                    w = font.measureText(word)
             else:
                 self.new_line()
         line: LineLayout = self.children[-1] # type: ignore
@@ -311,7 +325,7 @@ class BlockLayout(Layout):
         text = TextLayout(node, word, line, previous_word)
         line.children.append(text)
         self.cursor_x += w
-        if node.style["white-space"] != "pre": self.cursor_x += font.measure(" ")
+        if node.style["white-space"] != "pre": self.cursor_x += font.measureText(" ")
 
     def new_line(self) -> None:
         self.cursor_x = 0
@@ -343,10 +357,10 @@ class BlockLayout(Layout):
         except: size = 12
         # ---
         font = get_font(family, size, weight, style)
-        self.cursor_x += w + font.measure(" ")
+        self.cursor_x += w + font.measureText(" ")
 
-    def self_rect(self) -> Rect:
-        return Rect(self.x, self.y, self.x + self.width, self.y + self.height)
+    def self_rect(self) -> skia.Rect:
+        return skia.Rect.MakeXYWH(self.x, self.y, self.width, self.height)
 
 class LineLayout(Layout):
     def __init__(self, \
@@ -390,24 +404,27 @@ class LineLayout(Layout):
         for word in self.children:
             word.x += text_padding
         # ---
-        max_ascent = max([word.font.metrics("ascent") for word in self.children])
+        max_ascent = max([(-word.font.getMetrics().fAscent) for word in self.children])
         baseline = int(self.y + 1.25 * max_ascent)
         for child in self.children:
-            child.y = baseline - child.font.metrics("ascent")
+            child.y = baseline + child.font.getMetrics().fAscent
             if not isinstance(child, TextLayout): continue
-            if child.node.style["vertical-align"] == "top": child.y -= child.font.metrics("ascent") # vertical-align: top
+            if child.node.style["vertical-align"] == "top": child.y += child.font.getMetrics().fAscent # vertical-align: top
             if "\N{soft hyphen}" in child.word: child.word = child.word.replace("\N{soft hyphen}", "") # Removes visible soft hyphen 
-        max_descent = max([word.font.metrics("descent") for word in self.children])
+        max_descent = max([word.font.getMetrics().fDescent for word in self.children])
         self.height = int(1.25 * (max_ascent + max_descent))
 
     def paint(self) -> list:
         return []
     
+    def paint_effects(self, cmds: list[Draw]):
+        return super().paint_effects(cmds)
+    
     def should_paint(self) -> bool:
         return super().should_paint()
     
-    def self_rect(self) -> Rect:
-        return Rect(self.x, self.y, self.x + self.width, self.y + self.height)
+    def self_rect(self) -> skia.Rect:
+        return skia.Rect.MakeXYWH(self.x, self.y, self.width, self.height)
 
 class TextLayout(Layout):
     def __init__(self, \
@@ -450,23 +467,26 @@ class TextLayout(Layout):
             self.word = self.word.upper()
             size = int(size * .75)
         self.font = get_font(family, size, weight, style)
-        self.width = self.font.measure(self.word)
+        self.width = self.font.measureText(self.word)
         if self.previous:
-            space = self.previous.font.measure(" ") if not self.no_space else 0
+            space = self.previous.font.measureText(" ") if not self.no_space else 0
             self.x = self.previous.x + space + self.previous.width
         else:
             self.x = self.parent.x
-        self.height = self.font.metrics("linespace")
+        self.height = linespace(self.font)
 
     def paint(self) -> list[Draw]:
         color = self.node.style['color']
         return [DrawText(self.x, self.y, self.word, self.font, color, layout=self)]
 
+    def paint_effects(self, cmds: list[Draw]):
+        return super().paint_effects(cmds)
+
     def should_paint(self) -> bool:
         return super().should_paint()
     
-    def self_rect(self) -> Rect:
-        return Rect(self.x, self.y, self.x + self.width, self.y + self.height)
+    def self_rect(self) -> skia.Rect:
+        return skia.Rect.MakeXYWH(self.x, self.y, self.width, self.height)
 
 class InputLayout(Layout):
     def __init__(self, \
@@ -514,11 +534,11 @@ class InputLayout(Layout):
        
         # Sizes
         if self.previous:
-            space = self.previous.font.measure(" ")
+            space = self.previous.font.measureText(" ")
             self.x = self.previous.x + space + self.previous.width
         else:
             self.x = self.parent.x
-        self.height = self.font.metrics("linespace")
+        self.height = linespace(self.font)
 
     def paint(self) -> list[Draw]:
         cmds: list[Draw] = []
@@ -531,7 +551,7 @@ class InputLayout(Layout):
             if self.type == "password":
                 text = "*" * len(text)
             if self.node.is_focused:
-                cx = self.x + self.font.measure(text)
+                cx = self.x + self.font.measureText(text)
                 cmds.append(DrawLine(cx, self.y, cx, self.y + self.height, "black", 1, layout=self))
             color = self.node.style['color']
             cmds.append(DrawText(self.x, self.y, text, self.font, color, layout=self))
@@ -545,30 +565,42 @@ class InputLayout(Layout):
             color = self.node.style['color']
             cmds.append(DrawText(self.x, self.y, text, self.font, color, layout=self))
         elif self.type == "checkbox":
-            cmds.append(DrawRect(self.self_rect(), "lightgray", layout=self))
+            cmds.append(DrawRRect(self.self_rect(), 2.0, "gray", layout=self))
             cmds.append(DrawOutline(self.self_rect(), "black", 1, layout=self))
             if "checked" in self.node.attributes:
                 cmds.append(DrawText(self.x, self.y, " ✓", self.font, "black", layout=self))
         return cmds
     
+    def paint_effects(self, cmds: list[Draw]):
+        return super().paint_effects(cmds)
+
     def should_paint(self) -> bool:
         return self.type != "hidden"
 
-    def self_rect(self) -> Rect:
-        return Rect(self.x, self.y, self.x + self.width, self.y + self.height)
+    def self_rect(self) -> skia.Rect:
+        return skia.Rect.MakeXYWH(self.x, self.y, self.width, self.height)
 
 def get_font(
 family: str, 
 size: int, 
 weight: Literal['normal', 'bold'], 
 style: Literal['roman', 'italic']
-) -> tkinter.font.Font:
-    key = (family, size, weight, style)
+) -> skia.Font:
+    key = (weight, style)
     if key not in FONTS:
-        font = tkinter.font.Font(family=family, size=size, weight=weight, slant=style)
-        label = tkinter.Label(font=font)
-        FONTS[key] = (font, label)
-    return FONTS[key][0]
+        if weight == "bold":
+            skia_weight = skia.FontStyle.kBold_Weight
+        else:
+            skia_weight = skia.FontStyle.kNormal_Weight
+        if style == "italic":
+            skia_style = skia.FontStyle.kItalic_Slant
+        else:
+            skia_style = skia.FontStyle.kUpright_Slant
+        skia_width = skia.FontStyle.kNormal_Width
+        style_info = skia.FontStyle(skia_weight, skia_width, skia_style)
+        font = skia.Typeface(family, style_info)
+        FONTS[key] = font
+    return skia.Font(FONTS[key], size)
 
 def split_small_caps(text: str) -> list[str]:
     out: list[str] = []
@@ -584,3 +616,30 @@ def split_small_caps(text: str) -> list[str]:
     if buffer: out.append(buffer)
     return out
 
+def linespace(font: skia.Font) -> int:
+    metrics = font.getMetrics()
+    return metrics.fDescent - metrics.fAscent
+
+def paint_visual_effects(
+node: Element | Text | list[Element | Text], 
+cmds: list[Draw], 
+rect: skia.Rect, 
+layout: Layout | None = None
+) -> list[Draw]:
+    node = node if not isinstance(node, list) else node[0]
+    # opacity
+    try: opacity = float(node.style.get("opacity", "1.0"))
+    except: opacity = 1.0
+    # mix-blend-mode
+    blend_mode = node.style.get("mix-blend-mode", "")
+    # overflow: clip
+    if node.style.get("overflow", "visible") == "clip":
+        if not blend_mode:
+            blend_mode = "source-over"
+        try: border_radius = float(node.style.get("border-radius", "0px")[:-2])
+        except: border_radius = 0.0
+        cmds.append(Blend(1.0, "destination-in", [
+            DrawRRect(rect, border_radius, "white")
+        ], layout=layout))
+    # ---
+    return [Blend(opacity, blend_mode, cmds, layout=layout)]

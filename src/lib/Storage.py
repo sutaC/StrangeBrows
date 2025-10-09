@@ -68,12 +68,6 @@ class Storage:
         self.con.commit()
         cursor.close()
 
-    def update_cache(self, url: str, expires: int, body: str) -> None:
-        cursor = self.con.cursor()
-        cursor.execute('UPDATE cache (expires, body) VALUES (?, ?) WHERE url = ?;', [expires, body, url])
-        self.con.commit()
-        cursor.close()
-
     def get_cache(self, url: str) -> str | None:
         cursor = self.con.cursor()
         cursor.execute("SELECT expires, body FROM cache WHERE url = ?;", [url])

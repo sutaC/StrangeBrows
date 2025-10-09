@@ -4,10 +4,17 @@ Simple web browser build from scratch in python, with help of this amazing web b
 
 ## Used libraries
 
-To run StrangeBrows you will need:
+Librarues used by StrangeBrows:
 
--   [tkinter](https://docs.python.org/3/library/tkinter.html) - for creating windows
+-   [pysdl2](https://pypi.org/project/PySDL2/) - for handling windows
+-   [skia-python](https://kyamagu.github.io/skia-python/) - for handling graphical surfaces
 -   [DukPy](https://github.com/amol-/dukpy) - for JavaScript execution
+
+Required packages are saved in [requirements.txt](./requirements.txt) and you can download them with:
+
+```bash
+pip install -r requraments.txt
+```
 
 ## Development
 

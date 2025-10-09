@@ -1,6 +1,6 @@
 import sys
+import skia
 from pathlib import Path
-from tkinter import PhotoImage
 
 if hasattr(sys, '_MEIPASS'):
     # Running in a PyInstaller bundle
@@ -10,4 +10,4 @@ else:
     BASE_DIR = Path(__file__).parent.parent.parent
 
 COOKIE_JAR: dict[str, tuple[str, dict[str, str]]] = {}
-IMAGE_CACHE: dict[str, PhotoImage] = {}
+IMAGE_CACHE: dict[str, skia.Image] = {}

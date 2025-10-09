@@ -315,7 +315,8 @@ class URL:
                     assert age >= 0
                 expires = int(time()) + max_age - age
                 if self.storage.get_cache(self.url):
-                    self.storage.update_cache(self.url, expires, content)
+                    self.storage.delete_cache(self.url)
+                    self.storage.add_cache(self.url, expires, content)
                 else:
                     self.storage.add_cache(self.url, expires, content)
         return response_headers, content

@@ -1,16 +1,15 @@
-import tkinter
-import tkinter.messagebox
+import skia
 import urllib.parse
+from pathlib import Path
 from .URL import URL
 from . import BASE_DIR
-from .Draw import Draw
-from pathlib import Path
 from .JSContext import JSContext
+from .Layout import DocumentLayout, Layout
+from .Draw import Blend, Draw, DrawRRect, DrawRect
 from .CSSParser import CSS_rule, CSSParser, style, cascade_priority
 from .HTMLParser import HTMLParser, HTMLSourceParser, Element, Text
-from .Layout import Dimensions, DocumentLayout, Layout
 
-SCROLL_STEP = 100
+SCROLL_STEP = 50
 SCROLLBAR_OFFSET = 2
 
 # Default style sheets
@@ -21,12 +20,12 @@ except: print("Could not find default style sheets file")
 DEFAULT_STYLE_SHEET = CSSParser(ss).parse()
 
 class Tab:
-    def __init__(self, window: tkinter.Tk, dimesnions: Dimensions) -> None:
-        self.window: tkinter.Tk = window
+    def __init__(self, browser) -> None:
+        from .Browser import Browser
+        assert isinstance(browser, Browser)
+        self.browser: Browser = browser
         self.url: URL = URL("about:blank")
         self.js: JSContext
-        self.dimensions: Dimensions = dimesnions
-        self.images: list[tkinter.PhotoImage] = []
         self.display_list: list[Draw] = []
         self.scroll = 0
         self.history: list[URL] = []
@@ -37,19 +36,14 @@ class Tab:
         self.rules: list[CSS_rule] = DEFAULT_STYLE_SHEET.copy()
         
     # --- Event handlers
-    def scrollup(self) -> None:
+    def up(self) -> None:
         self.scroll = max(self.scroll - SCROLL_STEP, 0)
 
-    def scrolldown(self) -> None:
+    def down(self) -> None:
         self.scroll = min(self.scroll + SCROLL_STEP, self.display_height())
 
-    def scrollmousewheel_win32(self, delta: int) -> None:
-        delta = int(delta / 120) * SCROLL_STEP * -1 # Resets win32 standart 120 step and invert
-        if delta < 0: self.scroll = max(self.scroll + delta, 0)
-        else: self.scroll = min(self.scroll + delta, self.display_height())
-
-    def scrollmousewheel_darwin(self, delta: int) -> None:
-        delta *= SCROLL_STEP # Resets darwin standart 1 step
+    def scrollwheel(self, delta: int) -> None:
+        delta *= -SCROLL_STEP # Adjusts direction and distance
         if delta < 0: self.scroll = max(self.scroll + delta, 0)
         else: self.scroll = min(self.scroll + delta, self.display_height())
 
@@ -58,11 +52,7 @@ class Tab:
 
     def middle_click(self, x: int, y: int) -> URL | None:
         y += self.scroll
-        objs: list[Layout] = [obj.layout for obj in self.display_list
-            if obj.layout is not None
-            and obj.layout.x <= x < obj.layout.x + obj.layout.width
-            and obj.layout.y <= y < obj.layout.y + obj.layout.height
-        ]
+        objs = self.display_list_xyobjects(x, y)
         if not objs: return
         elt: Element | Text | None = objs[-1].node if not isinstance(objs[-1].node, list) else objs[-1].node[-1]
         assert isinstance(elt, Element | Text)
@@ -76,11 +66,7 @@ class Tab:
 
     def click(self, x: int, y: int) -> None:
         y += self.scroll
-        objs: list[Layout] = [obj.layout for obj in self.display_list
-            if obj.layout is not None
-            and obj.layout.x <= x < obj.layout.x + obj.layout.width
-            and obj.layout.y <= y < obj.layout.y + obj.layout.height
-        ]
+        objs = self.display_list_xyobjects(x, y)
         if not objs: return
         elt: Element | Text | None = objs[-1].node if not isinstance(objs[-1].node, list) else objs[-1].node[-1]
         assert isinstance(elt, Element | Text)
@@ -97,7 +83,7 @@ class Tab:
                     node = find_node_by_id(self.url.fragment, self.document)
                     if node is not None: 
                         self.scroll = node.y
-                        self.scrollmousewheel_darwin(0) # Prevents overscroll
+                        self.scrollwheel(0) # Prevents overscroll
                 else:
                     url = self.url.resolve(href)
                     self.clear_forward()
@@ -126,53 +112,83 @@ class Tab:
             elt = elt.parent
         self.render()
 
-    def keypress(self, char: str) -> None:
+    def keypress(self, char: str) -> bool:
         if self.focus:
-            if self.js.dispatch_event("keydown", self.focus): return
+            if self.js.dispatch_event("keydown", self.focus): return True
             self.focus.attributes["value"] += char
             self.render()
+            return True
+        return False
 
-    def enter(self) -> None:
+    def enter(self) -> bool:
         if self.focus and self.focus.tag == "input": 
-            if self.js.dispatch_event("keydown", self.focus): return
+            if self.js.dispatch_event("keydown", self.focus): return True
             elt = self.focus
             while elt:
                 if elt.tag == "form" and "action" in elt.attributes:
-                    return self.submit_form(elt)
+                    self.submit_form(elt)
+                    return True
                 elt = elt.parent
+        return False
 
-    def backspace(self) -> None:
+    def backspace(self) -> bool:
         if self.focus and self.focus.tag == "input":
-            if self.js.dispatch_event("keydown", self.focus): return
+            if self.js.dispatch_event("keydown", self.focus): return True
             text = self.focus.attributes.get("value")
-            if not text: return
+            if not text: return False
             text = text[:-1]
             self.focus.attributes["value"] = text
             self.render()
+            return True
+        return False
 
     # --- Functions
+    def display_list_xyobjects(self, x: int, y: int) -> list[Layout]:
+        objs: list[Layout] = []
+        for obj in flatten_display_list(self.display_list):
+            if obj.layout is not None \
+            and obj.layout.x <= x < obj.layout.x + obj.layout.width \
+            and obj.layout.y <= y < obj.layout.y + obj.layout.height:
+                objs.append(obj.layout)
+        return objs
+
     def display_height(self) -> int:
-        h = self.document.height - self.dimensions["height"] + self.dimensions["vstep"] * 2
+        h = (
+            self.document.height 
+            - self.browser.dimensions["height"] 
+            + self.browser.chrome.bottom
+            + self.browser.dimensions["vstep"] * 2
+        )
         return max(0, h)
 
-    def draw(self, canvas: tkinter.Canvas, offset: int) -> None:
-        # Draws content
+    def raster(self, canvas: skia.Canvas) -> None:
         for cmd in self.display_list:
-            if cmd.rect.top > self.scroll + self.dimensions["height"]: continue
-            if cmd.rect.bottom < self.scroll: continue
-            cmd.execute(self.scroll - offset, canvas)
-        # Draws scrollbar
+            cmd.execute(canvas)
+        self.raster_scrollbar(canvas)
+
+    def raster_scrollbar(self, canvas: skia.Canvas) -> None:
         dh = self.display_height()
+        # Bg
+        sb_rect = skia.Rect.MakeXYWH(
+            self.browser.dimensions['width'] - self.browser.dimensions["hstep"], self.scroll,
+            self.browser.dimensions["hstep"], dh
+        )
         if dh > 0:
-            ratio = int((self.scroll / dh) * (self.dimensions["height"] - self.dimensions["vstep"]))
-            canvas.create_rectangle(
-                self.dimensions['width'] - self.dimensions["hstep"] + SCROLLBAR_OFFSET,
-                ratio + SCROLLBAR_OFFSET + offset,
-                self.dimensions["width"] - SCROLLBAR_OFFSET,
-                ratio + self.dimensions["vstep"] - SCROLLBAR_OFFSET + offset,
-                fill="blue",
-                width=0
+            DrawRect(sb_rect, "lightgrey").execute(canvas)
+            ratio = int(
+                (self.scroll / dh) 
+                * (self.browser.dimensions["height"] - self.browser.chrome.bottom - self.browser.dimensions["vstep"])
             )
+            scrollbar_rect = skia.Rect.MakeXYWH(
+                sb_rect.left() + SCROLLBAR_OFFSET,
+                ratio + SCROLLBAR_OFFSET + self.scroll,
+                self.browser.dimensions["hstep"] - SCROLLBAR_OFFSET*2,
+                self.browser.dimensions["vstep"] - SCROLLBAR_OFFSET*2
+            )
+            DrawRRect(scrollbar_rect, 3, "grey").execute(canvas)
+        else:
+            DrawRect(sb_rect, "white").execute(canvas)
+
 
     def submit_form(self, elt: Element) -> None:
         inputs = [node for node in tree_to_list(elt, [])
@@ -203,6 +219,7 @@ class Tab:
         self.load(url, body)
 
     def load(self, url: URL, payload: str | None = None) -> None:
+        self.browser.set_cursor("LOADING")
         if self.focus: self.focus.is_focused = False
         self.focus = None
         self.scroll = 0
@@ -222,7 +239,7 @@ class Tab:
             self.nodes = HTMLParser(body).parse()
         self.url = url
         # Propagating attributes
-        self.propagate_attributes(self.nodes)        
+        self.propagate_attributes(self.nodes)  
         # Executing JavaScript
         self.js = JSContext(self)
         self.load_scripts(self.nodes)
@@ -235,23 +252,21 @@ class Tab:
             node = find_node_by_id(self.url.fragment, self.document)
             if node is not None: 
                 self.scroll = node.y
-                self.scrollmousewheel_darwin(0) # Prevents overscroll
+                self.scrollwheel(0) # Prevents overscroll
         # SSL error handling
         if 'x-ssl-error' in headers:
-            box = tkinter.messagebox.Message(
-                master=self.window,
-                parent=self.window,
-                title="Alert",
-                type=tkinter.messagebox.OK,
-                icon=tkinter.messagebox.ERROR,
-                message="This connection is not secure!",
-                detail="Page is not loaded, because SSL certificate error ocurred:\n\n{}".format(headers["x-ssl-error"])
+            self.browser.show_simple_messagebox(
+                "ERROR", 
+                'SSL error', 
+                'This connection is not secure!\nPage is not loaded, because SSL certificate error ocurred:\n\n{}'.format(headers["x-ssl-error"]),
             )
-            box.show()
+        # Update window title
+        self.browser.update_title()
+        self.browser.set_cursor("DEFAULT")
 
     def render(self) -> None:
         style(self.nodes, sorted(self.rules, key=cascade_priority))
-        self.document = DocumentLayout(self.nodes, self.dimensions)
+        self.document = DocumentLayout(self.nodes, self.browser.dimensions)
         self.document.layout()
         self.display_list = []
         paint_tree(self.document, self.display_list)
@@ -335,15 +350,12 @@ class Tab:
         if not self.can_back(): return
         # Resubmitting form alert
         if self.history[-2].method == "POST":
-            box = tkinter.messagebox.Message(
-                master=self.window,
-                title="Alert",
-                type=tkinter.messagebox.YESNO,
-                icon=tkinter.messagebox.WARNING,
-                message="Are you sure you want to resubmit form?"
+            action = self.browser.show_yesno_messagebox(
+                'WARNING',
+                'Resubmit form?',
+                'Are you sure you want to resubmit form?'
             )
-            action = box.show()
-            if action == "no": return
+            if not action: return
             forward = self.history.pop()
             self.forward_history.append(forward)
             back = self.history.pop()
@@ -358,15 +370,12 @@ class Tab:
         if not self.can_forward(): return
         # Resubmitting form alert
         if self.forward_history[-1].method == "POST":
-            box = tkinter.messagebox.Message(
-                master=self.window,
-                title="Alert",
-                type=tkinter.messagebox.YESNO,
-                icon=tkinter.messagebox.WARNING,
-                message="Are you sure you want to resubmit form?"
+            action = self.browser.show_yesno_messagebox(
+                'WARNING',
+                'Resubmit form?',
+                'Are you sure you want to resubmit form?'
             )
-            action = box.show()
-            if action == "no": return
+            if not action: return
             forward = self.forward_history.pop()
             self.load(forward, forward.payload)
         else:
@@ -387,13 +396,16 @@ class Tab:
             self.url.storage.add_bookmark(str(self.url))
     
     def page_title(self) -> str | None:
+        if not hasattr(self, "document"): return None
         head = self.document.node.children[0]
         for child in head.children:
             if isinstance(child, Element) and child.tag == "title":
                 if not child.children: return None
-                [text] = child.children
-                if isinstance(text, Element): return None
-                return text.text
+                text = ""
+                for ch in child.children:
+                    if not isinstance(ch, Text): continue 
+                    text += ch.text
+                return text if text else None
         return None
 
 def tree_to_list(tree, ls: list) -> list:
@@ -407,13 +419,16 @@ def print_tree(node, indent=0) -> None:
     for child in node.children:
         print_tree(child, indent+2)
 
-def paint_tree(
-layout_object: Layout, 
-display_list: list[Draw]) -> None:
+def paint_tree(layout_object: Layout, display_list: list[Draw]) -> None:
+    cmds = []
     if layout_object.should_paint():
-        display_list.extend(layout_object.paint())
+        cmds = layout_object.paint()
     for child in layout_object.children:
-        paint_tree(child, display_list)
+        paint_tree(child, cmds)
+    if layout_object.should_paint():
+        cmds = layout_object.paint_effects(cmds)
+    display_list.extend(cmds)
+
 
 def find_node_by_id(id: str, root: DocumentLayout) -> Layout | None:
     for layout in tree_to_list(root, []):
@@ -422,3 +437,12 @@ def find_node_by_id(id: str, root: DocumentLayout) -> Layout | None:
         and layout.node.attributes["id"] == id:
             return layout
     return None
+
+def flatten_display_list(dl: list[Draw]) -> list[Draw]:
+    out = []
+    for elt in dl:
+        if isinstance(elt, Blend):
+            out.extend(flatten_display_list(elt.children))
+        else:
+            out.append(elt)
+    return out

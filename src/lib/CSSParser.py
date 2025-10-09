@@ -19,6 +19,9 @@ SHORTHAND_PROPERTIES = {
         ("font-weight", ["bold", "normal"], False),
         ("font-size", [], True),
         ("font-style", [], True),
+    ],
+    "background" : [
+        ("background-color", [], True)
     ]
 }
 
