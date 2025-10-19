@@ -217,8 +217,7 @@ class JSContext:
         return elt.__repr__()
 
     def dispatch_event(self, type: str, elt: Element) -> bool:
-        handle: int = self.node_to_handle.get(elt, -1)
-        if handle < 0: return False
+        handle: int = self.get_handle(elt)
         do_default = self.interp.evaljs(EVENT_DISPATCH_JS, type=type, handle=handle)
         return not do_default
 

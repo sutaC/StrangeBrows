@@ -111,7 +111,7 @@ class DrawRRect(Draw):
     layout = None, 
     ) -> None:
         super().__init__(rect=rect, layout=layout)
-        self.rrect = skia.RRect.MakeRectXY(rect, radius, radius)
+        self.rrect = skia.RRect.MakeRectXY(self.rect, radius, radius)
         self.color: str = color
 
     def __repr__(self) -> str:

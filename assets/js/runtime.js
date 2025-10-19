@@ -28,7 +28,7 @@ Node.prototype.dispatchEvent = function (evt) {
     for (var i = 0; i < list.length; i++) {
         list[i].call(this, evt);
     }
-    if (evt.do_propagate && this.parentNode) {
+    if (evt.bubbles && this.parentNode) {
         return this.parentNode.dispatchEvent(evt);
     }
     return evt.do_default;
@@ -116,13 +116,13 @@ Object.defineProperty(document, "cookie", {
 function Event(type) {
     this.type = type;
     this.do_default = true;
-    this.do_propagate = true;
+    this.bubbles = true;
 }
 Event.prototype.preventDefault = function () {
     this.do_default = false;
 };
 Event.prototype.stopPropagation = function () {
-    this.do_propagate = false;
+    this.bubbles = false;
 };
 
 function XMLHttpRequest() {}

@@ -52,7 +52,7 @@ class Tab:
 
     def middle_click(self, x: int, y: int) -> URL | None:
         y += self.scroll
-        objs = self.display_list_xyobjects(x, y)
+        objs = self.hit_objects(x, y)
         if not objs: return
         elt: Element | Text | None = objs[-1].node if not isinstance(objs[-1].node, list) else objs[-1].node[-1]
         assert isinstance(elt, Element | Text)
@@ -66,7 +66,7 @@ class Tab:
 
     def click(self, x: int, y: int) -> None:
         y += self.scroll
-        objs = self.display_list_xyobjects(x, y)
+        objs = self.hit_objects(x, y)
         if not objs: return
         elt: Element | Text | None = objs[-1].node if not isinstance(objs[-1].node, list) else objs[-1].node[-1]
         assert isinstance(elt, Element | Text)
@@ -143,12 +143,11 @@ class Tab:
         return False
 
     # --- Functions
-    def display_list_xyobjects(self, x: int, y: int) -> list[Layout]:
+    def hit_objects(self, x: int, y: int) -> list[Layout]:
         objs: list[Layout] = []
         for obj in flatten_display_list(self.display_list):
-            if obj.layout is not None \
-            and obj.layout.x <= x < obj.layout.x + obj.layout.width \
-            and obj.layout.y <= y < obj.layout.y + obj.layout.height:
+            if object_hit(obj, x, y): 
+                assert obj.layout is not None
                 objs.append(obj.layout)
         return objs
 
@@ -446,3 +445,9 @@ def flatten_display_list(dl: list[Draw]) -> list[Draw]:
         else:
             out.append(elt)
     return out
+
+def object_hit(obj: Draw, x: int, y: int) -> bool:
+    if obj.layout is None: return False
+    if isinstance(obj, DrawRRect):
+        return obj.rrect.contains(skia.Rect.MakeXYWH(x, y, 0, 0))
+    return obj.rect.contains(x, y)
