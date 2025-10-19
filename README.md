@@ -31,7 +31,7 @@ For building project uses [pyinstaller](https://pyinstaller.org/en/stable/)
 To build execute:
 
 ```bash
-pyinstaller main.spec
+python -m PyInstaller main.spec
 ```
 
 To run built project execute:
