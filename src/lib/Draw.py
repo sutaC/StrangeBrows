@@ -183,12 +183,20 @@ class DrawLine(Draw):
         canvas.drawPath(path, paint)
 
 class Blend(Draw):
-    def __init__(self, opacity: float, blend_mode: str, children: list[Draw], layout=None) -> None:
+    def __init__(
+    self, 
+    opacity: float, 
+    blend_mode: str, 
+    children: list[Draw], 
+    blur: float = 0.0,
+    layout=None
+    ) -> None:
         rect = skia.Rect.MakeEmpty()
         super().__init__(rect=rect, layout=layout)
         self.opacity: float = opacity
         self.blend_mode: str = blend_mode
-        self.should_save: bool = bool(self.blend_mode) or self.opacity < 1
+        self.blur: float = blur
+        self.should_save: bool = bool(self.blend_mode) or self.opacity < 1 or self.blur > 0
         self.children: list[Draw] = children
         for cmd in self.children:
             self.rect.join(cmd.rect)
@@ -201,7 +209,8 @@ class Blend(Draw):
     def execute(self, canvas: skia.Canvas) -> None:
         paint = skia.Paint(
             Alphaf=self.opacity,
-            BlendMode=parse_blend_mode(self.blend_mode)
+            BlendMode=parse_blend_mode(self.blend_mode),
+            ImageFilter=skia.ImageFilters.Blur(self.blur, self.blur),
         )
         if self.should_save:
             canvas.saveLayer(None, paint)

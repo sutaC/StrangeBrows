@@ -641,5 +641,11 @@ layout: Layout | None = None
         cmds.append(Blend(1.0, "destination-in", [
             DrawRRect(rect, border_radius, "white")
         ], layout=layout))
+    # filter: blur(0px)
+    blur = node.style.get("filter", "")
+    if blur.startswith("blur(") and blur.endswith("px)"):
+        try: blur = float(blur[len("blur("):-len("px)")])
+        except: blur = 0.0
+    else: blur = 0.0
     # ---
-    return [Blend(opacity, blend_mode, cmds, layout=layout)]
+    return [Blend(opacity, blend_mode, cmds, blur=blur, layout=layout)]
